@@ -5,6 +5,7 @@ Molotology Evolution: a browser game. Phaser 4 + TypeScript + Vite, built as a s
 ## Commands
 - `npm run dev`: dev server (port 8080)
 - `npm run typecheck`: `tsc --noEmit`. **Must have zero errors** before finishing any task.
+- `npm run test`: `vitest run`. Run unit/integration tests.
 - `npm run build`: static build to `dist/`. It must also pass.
 
 ## Phaser 4 only
