@@ -1,0 +1,19 @@
+{
+  "name": "molotology-evolution",
+  "description": "Molotology Evolution - a Phaser 4 game",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "phaser": "^4.2.1"
+  },
+  "private": true,
+  "type": "module"
+}
