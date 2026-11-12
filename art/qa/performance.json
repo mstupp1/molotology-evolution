@@ -1,5 +1,5 @@
 {
   "renderer": "Chrome headless with SwiftShader software WebGL",
-  "requestAnimationFramesPerSecond": 15,
+  "requestAnimationFramesPerSecond": 43,
   "note": "Diagnostic sample, not a hardware GPU benchmark or a timed balance playthrough."
 }

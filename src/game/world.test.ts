@@ -3,9 +3,9 @@ import { collect, newProgress } from './model';
 import { meetsRequirement, ROOMS, ROOM_IDS, segmentRect, type RoomId } from './world';
 
 describe('shipwreck progression', () => {
-    it('contains twelve main rooms, two secrets, unique map positions, unique enemy IDs and reciprocal connections', () => {
-        expect(ROOM_IDS).toHaveLength(14);
-        expect(new Set(ROOM_IDS.map(id => ROOMS[id].map.join(','))).size).toBe(14);
+    it('contains fourteen main rooms, two secrets, unique map positions, unique enemy IDs and reciprocal connections', () => {
+        expect(ROOM_IDS).toHaveLength(16);
+        expect(new Set(ROOM_IDS.map(id => ROOMS[id].map.join(','))).size).toBe(16);
         for (const r of Object.values(ROOMS)) {
             for (const d of r.doors) { expect(ROOMS[d.to].doors.some(back => back.to === r.id), `${r.id} -> ${d.to}`).toBe(true); }
             expect(new Set(r.enemies.map(e => e.id)).size).toBe(r.enemies.length);
@@ -21,14 +21,14 @@ describe('shipwreck progression', () => {
             }
         }
         expect(progress.harpoon).toBe(true); expect(progress.evolution).toBe(2); expect(progress.key).toBe(true);
-        expect(visited.size).toBe(14); expect(visited.has('angler')).toBe(true);
+        expect(visited.size).toBe(16); expect(visited.has('angler')).toBe(true);
     });
     it('does not allow shortcuts to bypass the intended ability order', () => {
         const p = newProgress();
         expect(meetsRequirement('harpoon', p)).toBe(false); expect(meetsRequirement('pressure', p)).toBe(false);
         collect(p, 'harpoon', 'harpoon'); expect(meetsRequirement('harpoon', p)).toBe(true); expect(meetsRequirement('pressure', p)).toBe(false);
-        collect(p, 'breach', 'breach'); expect(meetsRequirement('pressure', p)).toBe(true); expect(meetsRequirement('dash', p)).toBe(false);
-        collect(p, 'infestation', 'infestation'); expect(meetsRequirement('dash', p)).toBe(true); expect(meetsRequirement('key', p)).toBe(false);
+        collect(p, 'breach', 'breach'); expect(meetsRequirement('pressure', p)).toBe(true); expect(meetsRequirement('dash', p)).toBe(true); expect(meetsRequirement('heat', p)).toBe(false);
+        collect(p, 'infestation', 'infestation'); expect(meetsRequirement('heat', p)).toBe(true); expect(meetsRequirement('key', p)).toBe(false);
     });
     it('places the mandatory grapple anchor on a clear approach beside its landing platform', () => {
         const room = ROOMS.bell, anchor = room.anchors[0];
@@ -47,7 +47,8 @@ describe('vital pearls and platform clearance', () => {
             for (const a of ps) for (const b of ps) {
                 if (a === b || b.y <= a.y || a.x >= b.x + b.w || b.x >= a.x + a.w) continue;
                 const gap = b.y - (a.y + a.h);
-                if (gap >= 0 && a.h < 100) expect(gap, `${id}: ${a.x},${a.y} over ${b.x},${b.y}`).toBeGreaterThan(90);
+                // Zero-gap iron ribs intentionally join the climbable Caldera vault.
+                if (gap > 0 && a.h < 100) expect(gap, `${id}: ${a.x},${a.y} over ${b.x},${b.y}`).toBeGreaterThan(90);
             }
         }
     });

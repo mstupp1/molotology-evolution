@@ -84,7 +84,7 @@ test('first molt, pressure gate, second molt, physical Dash duct and chapel key'
     await place(page, 2100, 710); await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).evolution).toBe(2);
     await travel(page, 'ballast'); expect((await state(page)).room).toBe('ballast');
     await place(page, 1230, 850); await page.keyboard.down('d'); await page.keyboard.press('Shift'); await expect.poll(async () => (await state(page)).x, {timeout:7000}).toBeGreaterThan(1720); await page.keyboard.up('d'); await page.waitForTimeout(100);
-    const escaped = await state(page); expect(escaped.x).toBeGreaterThan(1700); expect(escaped.bodyHeight).toBe(86);
+    const escaped = await state(page); expect(escaped.x).toBeGreaterThan(1700); expect(escaped.bodyHeight).toBe(44);
     await travel(page, 'quarters'); expect((await state(page)).room).toBe('quarters');
     await place(page, 2640, 620); await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).key).toBe(true);
     await travel(page, 'chapel'); expect((await state(page)).room).toBe('chapel');
@@ -92,7 +92,7 @@ test('first molt, pressure gate, second molt, physical Dash duct and chapel key'
 
 test('every enemy room renders, hidden miniboss rewards persist, and Angler victory is explorable', async ({ page }) => {
     const errors = []; page.on('pageerror', e => { errors.push(e.message); console.log('BROWSER ERROR', e.stack); }); await start(page);
-    for (const room of ['cargo', 'armory', 'rigging', 'infirmary', 'pressure', 'molt', 'ballast', 'quarters', 'chapel', 'handcrab', 'hermit', 'angler']) {
+    for (const room of ['cargo', 'armory', 'rigging', 'infirmary', 'pressure', 'molt', 'ballast', 'quarters', 'chapel', 'furnace', 'caldera', 'handcrab', 'hermit', 'angler']) {
         await fixture(page, room, { harpoon: true, evolution: 2, key: true });
         await page.waitForTimeout(120); expect((await state(page)).room).toBe(room);
     }

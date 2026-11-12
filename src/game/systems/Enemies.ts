@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import type { EnemyKind, EnemySpawn, Rect } from '../world';
 import { segmentRect } from '../world';
 import type { Player } from './Player';
+import { isSwimmer } from '../mechanics';
 
 export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; height: number; hp: number; damage: number; name: string }> = {
     urchin: { frame: 0, width: 74, height: 74, hp: 48, damage: 12, name: 'Spine Urchin' },
@@ -18,11 +19,14 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     mode: 'patrol' | 'windup' | 'strike' | 'recover' = 'patrol'; timer = 1.8; elapsed = 0;
     target = new Phaser.Math.Vector2(); home = new Phaser.Math.Vector2(); cycles = 0; stun = 0; flash = 0;
     constructor(scene: Phaser.Scene, readonly spec: EnemySpawn, swimming: boolean) {
-        super(scene, spec.x, spec.y, `creature-${ENEMY_INFO[spec.kind].frame}`);
+        super(scene, spec.x, spec.y, `enemy-${spec.kind}`, 0);
         scene.add.existing(this); scene.physics.add.existing(this);
         const info = ENEMY_INFO[spec.kind]; this.health = this.maxHealth = info.hp;
-        this.setDisplaySize(info.width, info.height).setDepth(18).setCollideWorldBounds(true);
-        this.body.setSize(this.width * 0.67, this.height * 0.66).setOffset(this.width * 0.16, this.height * 0.2);
+        const bounds = scene.cache.json.get('motion-manifest').enemies[spec.kind].referenceBounds as number[];
+        const w = bounds[2] - bounds[0], h = bounds[3] - bounds[1];
+        this.setScale(info.width / w, info.height / h).setDepth(18).setCollideWorldBounds(true);
+        this.body.setSize(w * 0.67, h * 0.66).setOffset(128 - w * 0.335, 128 - h * 0.33);
+        this.play(`enemy-${spec.kind}-move`);
         this.body.allowGravity = !swimming; this.body.gravity.y = swimming ? 0 : 430;
         if (!swimming) this.y = 850 - info.height * 0.36;
         this.home.set(this.x, this.y); this.timer += (spec.x % 7) * 0.15;
@@ -44,14 +48,18 @@ export class EnemySystem {
     projectiles: Phaser.Physics.Arcade.Group;
     graphics: Phaser.GameObjects.Graphics;
     private collider: Phaser.Physics.Arcade.Collider;
+    private tentacles = new Map<Enemy, Phaser.GameObjects.Image>();
     constructor(scene: Phaser.Scene, platforms: Phaser.Physics.Arcade.StaticGroup, specs: EnemySpawn[], defeated: string[], private geometry: Rect[], private damagePlayer: (damage: number, fromX: number) => void, private onKill: (enemy: Enemy) => void) {
         this.projectiles = scene.physics.add.group({ defaultKey: 'spark', maxSize: 18, allowGravity: false });
         this.graphics = scene.add.graphics().setDepth(21);
         for (const spec of specs) {
             if (defeated.includes(spec.id)) continue;
-            this.list.push(['jellyfish', 'shark', 'angler'].includes(spec.kind) ? new SwimmingEnemy(scene, spec) : new GroundedEnemy(scene, spec));
+            const enemy = isSwimmer(spec.kind) ? new SwimmingEnemy(scene, spec) : new GroundedEnemy(scene, spec);
+            this.list.push(enemy);
+            if (enemy.kind === 'octopus') this.tentacles.set(enemy, scene.add.image(enemy.x, enemy.y, 'tentacle').setOrigin(1, 0.5).setDepth(21).setVisible(false));
         }
-        this.collider = scene.physics.add.collider(this.list, platforms);
+        // Swimmers inhabit the water column and deliberately pass through wreck platforms.
+        this.collider = scene.physics.add.collider(this.list.filter(e => !isSwimmer(e.kind)), platforms);
     }
     blocked(ax: number, ay: number, bx: number, by: number): boolean { return this.geometry.some(r => segmentRect(ax, ay, bx, by, r) !== null); }
     shoot(e: Enemy, player: Player, spread = 0): void {
@@ -67,6 +75,7 @@ export class EnemySystem {
     update(dt: number, player: Player): void {
         this.graphics.clear();
         for (const e of this.list) {
+            this.tentacles.get(e)?.setVisible(false);
             if (!e.active || e.health <= 0) continue;
             e.elapsed += dt; e.timer -= dt;
             const dx = player.centerX - e.x, dy = player.centerY - e.y, distance = Math.hypot(dx, dy);
@@ -114,9 +123,10 @@ export class EnemySystem {
                     if (distance < r + 16) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
                 }
                 if (e.kind === 'octopus') {
-                    this.graphics.lineStyle(12, 0x67334c).lineBetween(e.x, e.y, e.target.x, e.target.y);
-                    this.graphics.lineStyle(3, 0xe297a0).lineBetween(e.x, e.y - 3, e.target.x, e.target.y - 3);
-                    const hit = Phaser.Geom.Intersects.LineToRectangle(new Phaser.Geom.Line(e.x, e.y, e.target.x, e.target.y), new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height));
+                    const extension = Math.sin(Math.PI * Phaser.Math.Clamp((0.35 - e.timer) / 0.35, 0, 1));
+                    const tx = e.x + (e.target.x - e.x) * extension, ty = e.y + (e.target.y - e.y) * extension;
+                    this.tentacles.get(e)?.setVisible(true).setPosition(e.x, e.y).setDisplaySize(Math.max(15, Math.hypot(tx - e.x, ty - e.y)), 35).setRotation(Math.atan2(ty - e.y, tx - e.x) + Math.PI);
+                    const hit = Phaser.Geom.Intersects.LineToRectangle(new Phaser.Geom.Line(e.x, e.y, tx, ty), new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height));
                     if (hit) this.damagePlayer(18, e.x);
                 }
                 if (e.timer <= 0 || e.body.blocked.left || e.body.blocked.right) { e.mode = 'recover'; e.timer = e.kind === 'angler' ? (enraged ? 1.3 : 1.7) : e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
@@ -125,6 +135,8 @@ export class EnemySystem {
                 if (e.kind === 'angler') { e.setVelocity(0, (e.home.y - e.y) * 0.9); if (Math.sin(e.elapsed * 12) > 0) e.setTint(0xffe0a0); }
                 if (e.timer <= 0) { e.mode = 'patrol'; e.timer = enraged ? 0.45 : 1.1; }
             }
+            const animation = `enemy-${e.kind}-${e.mode === 'patrol' ? 'move' : e.mode}`;
+            if (e.anims.currentAnim?.key !== animation) e.play(animation);
             const harmless = e.kind === 'urchin' || e.kind === 'angler' && e.mode === 'recover';
             if (!harmless && Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height))) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
             if (e.health < e.maxHealth && !e.boss) {
@@ -151,5 +163,5 @@ export class EnemySystem {
         }
         return true;
     }
-    destroy(): void { this.collider.destroy(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); }
+    destroy(): void { this.collider.destroy(); this.tentacles.forEach(s => s.destroy()); this.tentacles.clear(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); }
 }

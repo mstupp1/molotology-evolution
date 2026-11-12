@@ -27,7 +27,7 @@ export class MainMenu extends Phaser.Scene {
         this.add.text(76, 305, 'The suit was made to keep the deep out.\nIt cannot keep you human.', serifStyle(21, '#bdc4b3')).setLineSpacing(10);
         const halo = this.add.image(1000, 470, 'glow').setDisplaySize(520, 520).setTint(0xd8bb79).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.17);
         this.tweens.add({ targets: halo, alpha: 0.3, duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-        const diver = this.add.image(974, 556, 'diver', 0).setDisplaySize(320, 320);
+        const diver = this.add.sprite(974, 556, 'diver-motion', 24).setDisplaySize(320, 320).play('player-0-idle');
         this.tweens.add({ targets: diver, y: 550, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         this.add.particles(1000, 420, 'bubble', { lifespan: 3000, speedY: { min: -70, max: -40 }, speedX: { min: -10, max: 10 }, scale: { min: 0.3, max: 0.6 }, alpha: { start: 0.9, end: 0 }, frequency: 650, quantity: 2 });
         this.add.tileSprite(960, 702, 640, 38, 'prop-0').setTileScale(0.6);
@@ -43,7 +43,7 @@ export class MainMenu extends Phaser.Scene {
         this.button(`Sound: ${this.sound.mute ? 'off' : 'on'}`, () => { this.sound.mute = !this.sound.mute; this.labels[this.selected].setText(`Sound: ${this.sound.mute ? 'off' : 'on'}`); });
         this.add.text(76, 625, 'A D / ARROWS MOVE     SPACE JUMP     J / CLICK SLASH\nSHIFT DODGE     E INTERACT     M MAP     ESC PAUSE', textStyle(10, '#759698')).setLineSpacing(9);
         this.add.text(76, 690, 'CHAPTER I · THE SHIP THAT WOULD NOT DIE', textStyle(10, '#9c9b87'));
-        this.add.text(1205, 690, 'DEMO  v2', textStyle(10, '#8fb3b6')).setOrigin(1, 0).setLetterSpacing(3);
+        this.add.text(1205, 690, 'DEMO  v3', textStyle(10, '#8fb3b6')).setOrigin(1, 0).setLetterSpacing(3);
         this.cameras.main.fadeIn(900, 3, 10, 17);
         this.select(0);
         this.input.keyboard!.on('keydown-UP', () => this.select(this.selected - 1));

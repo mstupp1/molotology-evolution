@@ -11,9 +11,9 @@ export function objective(p: Progress): string {
     if (p.completed) return 'The wreck is quiet. Find those who were left behind.';
     if (!p.harpoon) return 'Find the salvage harpoon in the Armory.';
     if (p.evolution === 0) return 'Return to the Air Bell. Grapple to the Rigging Shaft.';
-    if (p.evolution === 1) return 'Descend through the Pressure Works. Follow the pulse.';
+    if (p.evolution === 1) return 'Break the calcified bulkhead with your claw. Find the final molt.';
     if (!p.key) return 'Dash through the Ballast Duct. Find the chapel key.';
-    return 'Unseal the Drowned Chapel. Extinguish the last light.';
+    return 'Cross the volcanic vents. Scuttle over the Caldera Vault to the last light.';
 }
 /** Each Vital Pearl found in the wreck permanently raises maximum health. */
 export const PEARL_HEALTH = 20;

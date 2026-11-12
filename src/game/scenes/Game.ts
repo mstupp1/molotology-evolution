@@ -7,6 +7,7 @@ import { Controls } from '../systems/Controls';
 import { Player } from '../systems/Player';
 import { Enemy, EnemySystem, ENEMY_INFO } from '../systems/Enemies';
 import { Harpoon } from '../systems/Harpoon';
+import { abilities, meleeReach } from '../mechanics';
 
 interface StartData { progress?: Progress; room?: RoomId; from?: RoomId; survival?: Survival }
 export class Game extends Phaser.Scene {
@@ -23,6 +24,7 @@ export class Game extends Phaser.Scene {
     private store = browserSaveStore();
     private effects: Phaser.Physics.Arcade.Group;
     private combatGraphics: Phaser.GameObjects.Graphics;
+    private clawSweep: Phaser.GameObjects.Image;
     private paused = false;
     private transitioning = false;
     private dead = false;
@@ -66,9 +68,10 @@ export class Game extends Phaser.Scene {
         this.player.facing = spawnX > this.room.width / 2 ? -1 : 1; this.lookahead = this.player.facing * 110;
         this.physics.add.collider(this.player, this.view.platforms);
         this.controls = new Controls(this); this.harpoon = new Harpoon(this, this.player);
-        this.enemies = new EnemySystem(this, this.view.platforms, this.room.enemies, this.progress.defeated, this.room.platforms, (n, x) => this.hurt(n, x), e => this.killed(e));
+        this.enemies = new EnemySystem(this, this.view.platforms, this.room.enemies, this.progress.defeated, this.view.geometry, (n, x) => this.hurt(n, x), e => this.killed(e));
         this.effects = this.physics.add.group({ defaultKey: 'spark', maxSize: 64, allowGravity: false });
         this.combatGraphics = this.add.graphics().setDepth(24);
+        this.clawSweep = this.add.image(0, 0, 'claw-sweep').setDepth(24).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
         this.cameras.main.setBounds(0, 0, this.room.width, this.room.height).startFollow(this.player, true, 0.1, 0.1, -this.lookahead, 60);
         this.cameras.main.fadeIn(400, 3, 10, 17);
         this.game.events.on(GameEvent.Command, this.onCommand);
@@ -132,7 +135,8 @@ export class Game extends Phaser.Scene {
     private hurt(damage: number, fromX: number): void {
         if (this.dead || this.player.dashTime > 0 || this.transitioning || !this.survival.hit(damage)) return;
         this.refill = false; this.player.hurtTime = 0.23; this.combo.reset();
-        if (this.harpoon.mode === 'pull') this.harpoon.mode = 'return';
+        if (this.harpoon.mode === 'pull') this.harpoon.release();
+        this.player.detach();
         this.player.body.allowGravity = true;
         this.player.setAcceleration(0, 0).setVelocity(Math.sign(this.player.centerX - fromX || 1) * 230, -110);
         this.cameras.main.shake(140, 0.006); this.cameras.main.flash(90, 90, 10, 10, true); this.burst(this.player.centerX, this.player.centerY, 0xdd8b83);
@@ -180,7 +184,7 @@ export class Game extends Phaser.Scene {
                 if (pickup.data.kind === 'health') this.notice('VITAL PEARL', `Something in the shell remembers how to heal. Maximum vitality is now ${this.survival.maxHealth}.`, 5000);
                 else if (pickup.data.kind === 'harpoon') this.notice('SALVAGE HARPOON ACQUIRED', 'Hold right mouse / RT to aim. Release to throw. Golden rings are grapple anchors.\nReturn to the Air Bell and aim up at the ring beside the high ledge.', 11000);
                 else if (pickup.data.kind === 'key') this.notice('CHAPEL KEY ACQUIRED', 'A key, warm against your changing skin. The chapel waits beyond the eastern bulkhead.');
-                else { this.soundEffect('molt', 0.7); this.cameras.main.flash(500, 100, 55, 75); this.notice(pickup.data.kind === 'breach' ? 'THE FIRST MOLT · THE BREACH' : 'THE SECOND MOLT · THE INFESTATION', pickup.data.kind === 'breach' ? 'Your lungs stiffen beneath a new shell. High pressure can no longer crush you.\nThe Pressure Works are open. Your oxygen reserve is still finite.' : 'The suit tears. The body answers. Shift / B now Dashes in your movement direction.\nDash through the low Ballast Duct. Find the officer’s key.', 11000); }
+                else { this.soundEffect('molt', 0.7); this.cameras.main.flash(500, 100, 55, 75); this.notice(pickup.data.kind === 'breach' ? 'THE FIRST MOLT · THE BREACH' : 'THE FINAL MOLT · THE CARAPACE', pickup.data.kind === 'breach' ? 'Your claw replaces the knife: a wider sweep that breaks calcified barriers.\nShift / B grants enhanced directional Dash. Your shell withstands high pressure.' : 'Fully crab. Extreme heat cannot harm your shell. Press toward walls to cling; W / S climb.\nA / D scuttle upside down beneath ceilings. Space or Down drops. Cross the volcanic vents.', 14000); }
                 this.save();
             }
             return;
@@ -217,7 +221,8 @@ export class Game extends Phaser.Scene {
         const air = this.room.air.some(r => inside(p.centerX, p.centerY, r));
         const busy = this.combo.active || this.harpoon.mode !== 'ready' || input.aim;
         const wasDashing = p.dashTime > 0;
-        p.updateController(dt, input, air, this.room.platforms, busy);
+        if (input.jump && this.harpoon.mode === 'pull') this.harpoon.release();
+        p.updateController(dt, input, air, this.view.geometry, busy);
         if (p.jumped) { this.puff(p.centerX, p.feet, 4, 18); this.soundEffect('jump', 0.25); }
         if (p.landed) { this.puff(p.centerX, p.feet, 3 + Math.round(p.landed * 6), 30); this.soundEffect('land', 0.15 + p.landed * 0.3); if (p.landed > 0.8) this.cameras.main.shake(90, 0.003); }
         if (p.dashTime > 0) {
@@ -237,22 +242,35 @@ export class Game extends Phaser.Scene {
         if (this.progress.harpoon && input.release && !this.combo.active && p.dashTime === 0 && p.hurtTime === 0) {
             if (this.harpoon.throw(input.aimX, input.aimY)) this.soundEffect('harpoon');
         }
-        this.harpoon.update(dt, this.room, this.enemies);
+        this.harpoon.update(dt, this.room, this.enemies, this.view.geometry);
         if (this.combo.active) p.state = 'MeleeAttack';
         else if (input.aim && this.progress.harpoon && this.harpoon.mode === 'ready') { p.state = 'HarpoonAim'; p.facing = input.aimX >= 0 ? 1 : -1; }
         else if (this.harpoon.mode === 'out' || this.harpoon.mode === 'return') p.state = 'HarpoonThrow';
         this.combatGraphics.clear();
+        this.clawSweep.setVisible(false);
         if (this.combo.damaging) {
-            const reach = this.combo.index === 2 ? 145 : 115;
-            const hitbox = new Phaser.Geom.Rectangle(p.centerX + (p.facing > 0 ? 0 : -reach), p.centerY - 80, reach, 135);
+            const reach = meleeReach(this.progress.evolution, this.combo.index === 2);
+            const vertical = p.surface === 'left' || p.surface === 'right';
+            const fx = vertical ? 0 : p.facing, fy = p.surface === 'right' ? -p.facing : p.surface === 'left' ? p.facing : 0;
+            const hitbox = new Phaser.Geom.Rectangle(p.centerX + fx * reach / 2 - (vertical ? 70 : reach / 2), p.centerY + fy * reach / 2 - (vertical ? reach / 2 : 75), vertical ? 140 : reach, vertical ? reach : 150);
             // A layered crescent reads as a fast blade sweep rather than a thin outline.
             const sweep = Math.min(1, (this.combo.elapsed - 0.07) / (this.combo.index === 2 ? 0.21 : 0.13));
-            const base = p.facing > 0 ? -1.1 : Math.PI + 1.1, span = 2.2 * sweep * (p.facing > 0 ? 1 : -1);
+            const attackAngle = Math.atan2(fy, fx);
+            const base = attackAngle - 1.1, span = 2.2 * sweep;
             const tint = this.progress.evolution === 2 ? 0xffb7a0 : 0xb3e8db;
             for (let layer = 0; layer < 4; layer++) {
                 const r = reach - 30 + layer * 6;
                 this.combatGraphics.lineStyle((this.combo.index === 2 ? 10 : 7) - layer * 2, layer === 3 ? 0xffffff : tint, 0.25 + layer * 0.2).beginPath()
                     .arc(p.centerX, p.centerY - 5, r, Math.min(base, base + span), Math.max(base, base + span)).strokePath();
+            }
+            if (abilities(this.progress.evolution).claw) {
+                this.clawSweep.setVisible(true).setPosition(p.centerX + fx * reach * 0.57, p.centerY + fy * reach * 0.57).setDisplaySize(reach * (0.7 + sweep * 0.3), 135).setRotation(attackAngle).setAlpha(Math.sin(Math.PI * sweep) * 0.9);
+                for (const b of [...this.view.breakables]) {
+                    if (!Phaser.Geom.Intersects.RectangleToRectangle(hitbox, new Phaser.Geom.Rectangle(b.data.x, b.data.y, b.data.w, b.data.h)) || !this.combo.hit(`break:${b.data.id}`)) continue;
+                    b.hits--; this.burst(b.data.x + b.data.w / 2, p.centerY, 0xeeb49b, 15); this.soundEffect('hit', 0.6); this.hitstop = 0.08;
+                    if (b.hits <= 0) { this.view.breakObstacle(b.data.id); this.progress.opened.push(`break:${b.data.id}`); this.save(); this.notice('THE CLAW FINDS A WAY', 'The calcified barrier breaks. This passage will stay open.', 3000); }
+                    else { b.sprite.setTint(0xe29080); this.floatText(b.data.x, p.centerY - 50, 'CRACK', '#edc6ad'); }
+                }
             }
             for (const e of this.enemies.list) {
                 if (!e.active || !Phaser.Geom.Intersects.RectangleToRectangle(hitbox, new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height)) || this.enemies.blocked(p.centerX, p.centerY, e.body.center.x, e.body.center.y)) continue;
@@ -276,15 +294,17 @@ export class Game extends Phaser.Scene {
         this.interact(input.interact);
         if (Math.abs(input.x) > 0.1 || input.attack || input.dash) this.refill = false;
         this.survival.update(dt, air, this.refill);
+        const inHeat = this.room.heat?.some(r => inside(p.centerX, p.centerY, r)) ?? false;
+        if (inHeat && !abilities(this.progress.evolution).heat) this.hurt(18, p.centerX - p.facing);
         if (this.survival.oxygen < 30 && !this.lowOxygenWarned) { this.lowOxygenWarned = true; this.notice('OXYGEN RESERVE LOW', 'Find an air pocket or a refill station. At zero oxygen, your health will drain.', 5000); }
         if (this.survival.oxygen > 35) this.lowOxygenWarned = false;
         if (this.survival.oxygen === 0 && this.lastSound <= 0) { this.soundEffect('hit', 0.15); this.lastSound = 2; }
         this.lastSound -= dt;
         if (this.survival.invulnerable > 0 && p.dashTime === 0) p.setAlpha(Math.sin(this.time.now / 40) > 0 ? 0.4 : 1); else p.setAlpha(1);
-        p.animate(this.survival.oxygen < 30, air && this.survival.oxygen < 120 || this.refill);
+        p.animate(this.survival.oxygen < 30, air && this.survival.oxygen < 120 || this.refill, this.combo.active ? this.combo.elapsed / this.combo.durations[this.combo.index] : undefined);
         const lights = this.enemies.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => ({ x: e.x + (e.kind === 'angler' ? (e.flipX ? 90 : -90) : 0), y: e.y - (e.kind === 'angler' ? 100 : 25), r: e.kind === 'angler' ? 150 : 70 }));
         this.view.update(dt, p, input.aimX, input.aimY, input.aim, lights);
-        this.harpoon.draw(input.aim && this.progress.harpoon, input.aimX, input.aimY, this.room);
+        this.harpoon.draw(input.aim && this.progress.harpoon, input.aimX, input.aimY, this.room, this.progress.harpoon);
         this.effects.getChildren().forEach(child => { const s = child as Phaser.Physics.Arcade.Image; if (s.active) { const life = Number(s.getData('life')) - dt; s.setData('life', life).setAlpha(Math.max(0, life / 0.55)); if (life <= 0) s.disableBody(true, true); } });
         if (this.survival.health <= 0 || p.y > this.room.height + 50) this.die();
         this.snapshotTimer -= dt; if (this.snapshotTimer <= 0) { this.snapshotTimer = 0.08; this.emitSnapshot(); }
@@ -301,7 +321,7 @@ export class Game extends Phaser.Scene {
             health: this.survival.health, maxHealth: this.survival.maxHealth, oxygen: this.survival.oxygen, evolution: this.progress.evolution, harpoon: this.progress.harpoon, key: this.progress.key,
             room: this.roomId, roomName: this.room.name, explored: [...this.progress.explored], opened: [...this.progress.opened], defeated: [...this.progress.defeated],
             position: { x: this.player.centerX / this.room.width, y: this.player.centerY / this.room.height },
-            environment: this.room.air.some(r => inside(this.player.centerX, this.player.centerY, r)) ? 'air' : this.room.pressure ? 'pressure' : 'water',
+            environment: this.room.volcanic ? 'heat' : this.room.air.some(r => inside(this.player.centerX, this.player.centerY, r)) ? 'air' : this.room.pressure ? 'pressure' : 'water',
             state: this.player.state, prompt: this.prompt, objective: objective(this.progress), paused: this.paused, completed: this.progress.completed,
             boss: boss ? { name: ENEMY_INFO[boss.kind].name, health: boss.health, maxHealth: boss.maxHealth } : null,
             checkpoint: this.progress.checkpoint, saving: this.refill, gamepad: this.controls.gamepad

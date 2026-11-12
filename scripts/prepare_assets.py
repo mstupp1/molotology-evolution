@@ -44,7 +44,11 @@ def clean_alpha(im):
     im.putalpha(alpha)
     return im
 
-sheet = clean_alpha(Image.open(archive / 'divers.png'))
+# Prefer the weathered edit; keep the original sheet as its art reference.
+diver_source = archive / 'divers-gritty.png'
+if not diver_source.exists():
+    diver_source = archive / 'divers.png'
+sheet = clean_alpha(Image.open(diver_source))
 atlas = Image.new('RGBA', (160 * 6, 160 * 3))
 previews = []
 for row in range(3):
