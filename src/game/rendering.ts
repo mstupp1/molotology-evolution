@@ -10,6 +10,32 @@ import { Flicker, roomDarkness } from './lighting';
 export const textStyle = (size = 16, color = '#b9ccca'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Cinzel, Georgia, serif', fontStyle: '600', fontSize: `${Math.max(13, size + 2)}px`, color, resolution: 3 });
 export const serifStyle = (size = 32, color = '#e5dac0'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: '"EB Garamond", Georgia, serif', fontSize: `${size}px`, color, resolution: 3 });
 
+export type PlaqueTone = 'bone' | 'sealed' | 'air' | 'heat' | 'relic';
+const PLAQUE: Record<PlaqueTone, { text: string; rim: number }> = {
+    bone: { text: '#ece2c8', rim: 0xc9a668 }, sealed: { text: '#f0b3a8', rim: 0xb4483d }, air: { text: '#c9efe3', rim: 0x72bcae },
+    heat: { text: '#ffd2a3', rim: 0xf0a868 }, relic: { text: '#f6e2b4', rim: 0xe1bb7a }
+};
+
+/**
+ * A small riveted nameplate fixed into the wreck. It reads like salvage stencilled
+ * onto the ship rather than an interface overlay, but gives every label a dark
+ * ground, a hard outline and a size that holds up at a glance.
+ */
+export function plaque(scene: Phaser.Scene, x: number, y: number, label: string, tone: PlaqueTone = 'bone', depth = 10): Phaser.GameObjects.Container {
+    const style = PLAQUE[tone];
+    const text = scene.add.text(0, 0, label, { fontFamily: 'Cinzel, Georgia, serif', fontStyle: '600', fontSize: '17px', color: style.text, resolution: 3, stroke: '#050608', strokeThickness: 4 })
+        .setOrigin(0.5).setLetterSpacing(1.5).setShadow(0, 2, '#000000', 4, true, true);
+    text.texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
+    const w = Math.ceil(text.width) + 40, h = 30, g = scene.add.graphics();
+    g.fillStyle(0x000000, 0.35).fillRect(-w / 2 + 2, -h / 2 + 3, w, h);
+    g.fillStyle(0x0a0c0e, 0.86).fillRect(-w / 2, -h / 2, w, h);
+    g.fillStyle(0xffffff, 0.05).fillRect(-w / 2, -h / 2, w, h / 2);
+    g.lineStyle(1, style.rim, 0.75).strokeRect(-w / 2 + 0.5, -h / 2 + 0.5, w - 1, h - 1);
+    g.lineStyle(1, style.rim, 0.25).strokeRect(-w / 2 + 3.5, -h / 2 + 3.5, w - 7, h - 7);
+    for (const rx of [-w / 2 + 10, w / 2 - 10]) g.fillStyle(0x020303, 1).fillCircle(rx + 0.5, 1, 2.6).fillStyle(style.rim, 0.85).fillCircle(rx, 0, 2);
+    return scene.add.container(Math.round(x), Math.round(y), [g, text]).setDepth(depth);
+}
+
 /**
  * The game renders with `pixelArt`, which samples every texture with NEAREST
  * filtering. That keeps sprites crisp but shreds text glyphs, so text objects
@@ -117,13 +143,13 @@ export function makeTextures(scene: Phaser.Scene): void {
         canvas.refresh();
     }
 }
-export interface RenderedPickup { data: Pickup; sprite: Phaser.GameObjects.Image; halo: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text }
+export interface RenderedPickup { data: Pickup; sprite: Phaser.GameObjects.Image; halo: Phaser.GameObjects.Image; label: Phaser.GameObjects.Container }
 export class RoomView {
-    doors: { data: Door; image: Phaser.GameObjects.Image; label?: Phaser.GameObjects.Text }[] = [];
+    doors: { data: Door; image: Phaser.GameObjects.Image; label?: Phaser.GameObjects.Container }[] = [];
     pickups: RenderedPickup[] = [];
     platforms: Phaser.Physics.Arcade.StaticGroup;
     geometry: Rect[];
-    breakables: { data: Obstacle; sprite: Phaser.Physics.Arcade.Image; label: Phaser.GameObjects.Text; hits: number }[] = [];
+    breakables: { data: Obstacle; sprite: Phaser.Physics.Arcade.Image; label: Phaser.GameObjects.Container; hits: number }[] = [];
     readonly theme: RoomTheme;
     private atmosphere: Atmosphere;
     private darkness: Phaser.Textures.CanvasTexture;
@@ -216,7 +242,7 @@ export class RoomView {
             if (progress.opened.includes(`break:${data.id}`)) continue;
             const sprite = scene.physics.add.staticImage(data.x + data.w / 2, data.y + data.h / 2, 'coral-barrier').setDisplaySize(data.w, data.h).setDepth(11).refreshBody();
             this.platforms.add(sprite); this.geometry.push(data);
-            const label = scene.add.text(data.x + data.w / 2, data.y - 24, 'CALCIFIED · CLAW REQUIRED', textStyle(10, '#e3b2a1')).setOrigin(0.5).setDepth(12);
+            const label = plaque(scene, data.x + data.w / 2, data.y - 28, 'Calcified · Claw Required', 'sealed', 12);
             this.breakables.push({ data, sprite, label, hits: 2 });
         }
         for (const h of room.heat ?? []) {
@@ -227,7 +253,7 @@ export class RoomView {
                 scene.tweens.add({ targets: glow, alpha: 0.35, duration: 700 + x % 300, yoyo: true, repeat: -1 });
                 scene.add.particles(x, 700, 'spark', { lifespan: 1600, speedY: { min: -100, max: -45 }, speedX: { min: -25, max: 25 }, scale: { start: 0.3, end: 0 }, alpha: { start: 0.65, end: 0 }, tint: [0xff6a30, 0xffca7e], frequency: 160 }).setDepth(17);
             }
-            scene.add.text(h.x + h.w / 2, h.y - 24, 'EXTREME HEAT · CARAPACE ADAPTED', textStyle(11, '#ffc28a')).setOrigin(0.5).setDepth(11);
+            plaque(scene, h.x + h.w / 2, h.y - 28, 'Extreme Heat · Carapace Only', 'heat', 11);
         }
         for (const a of room.anchors) {
             decor.lineStyle(2, 0x778f85, 0.65).lineBetween(a.x, 0, a.x, a.y - 14);
@@ -239,7 +265,7 @@ export class RoomView {
             const pocket = scene.add.rectangle(air.x + air.w / 2, 440, air.w, 800, 0x93b2a4, 0.06).setDepth(-4);
             scene.tweens.add({ targets: pocket, alpha: 0.6, duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             scene.add.image(air.x + air.w / 2, 30, 'fog').setDisplaySize(air.w, 220).setFlipY(true).setTint(0xd8f0e0).setAlpha(0.14).setDepth(-4);
-            scene.add.text(air.x + air.w / 2, 755, 'A I R   P O C K E T', textStyle(13, '#9dbbab')).setOrigin(0.5).setDepth(9);
+            plaque(scene, air.x + air.w / 2, 755, 'Air Pocket', 'air', 9);
         }
         for (const d of room.doors) {
             const unlocked = meetsRequirement(d.requires, progress);
@@ -249,7 +275,7 @@ export class RoomView {
                 const glow = scene.add.image(d.x, d.y - 60, 'glow').setDisplaySize(170, 210).setTint(d.shortcut ? COLORS.gold : theme.accent).setAlpha(0.18).setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
                 scene.tweens.add({ targets: glow, alpha: 0.32, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             }
-            const label = d.hidden ? undefined : scene.add.text(d.x, d.y - 151, `${d.shortcut ? '↗ ' : ''}${d.label}${unlocked ? '' : '  ◈'}`, textStyle(11, unlocked ? '#d8d4b8' : '#c18e8e')).setOrigin(0.5).setDepth(10).setShadow(0, 1, '#000000', 4);
+            const label = d.hidden ? undefined : plaque(scene, d.x, d.y - 160, `${d.shortcut ? '↗ ' : ''}${d.label.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())}${unlocked ? '' : '  ◈'}`, unlocked ? 'bone' : 'sealed', 10);
             this.doors.push({ data: d, image, label });
         }
         if (room.station) {
@@ -258,7 +284,7 @@ export class RoomView {
             const glow = scene.add.image(s.x, s.y - 65, 'glow').setDisplaySize(240, 240).setAlpha(0.55).setDepth(8).setBlendMode(Phaser.BlendModes.ADD);
             scene.tweens.add({ targets: glow, alpha: 0.85, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             scene.add.particles(s.x - 12, s.y - 110, 'bubble', { lifespan: 2400, speedY: { min: -60, max: -30 }, speedX: { min: -8, max: 8 }, scale: { min: 0.3, max: 0.7 }, alpha: { start: 0.8, end: 0 }, frequency: 420 }).setDepth(11);
-            scene.add.text(s.x, s.y - 160, 'O₂ / REFILL & SAVE', textStyle(11, '#a4d2c6')).setOrigin(0.5).setDepth(10).setShadow(0, 1, '#000000', 4);
+            plaque(scene, s.x, s.y - 166, 'O₂ Station · Refill & Save', 'air', 10);
         }
         for (const p of room.pickups) {
             if (progress.collected.includes(p.id)) continue;
@@ -267,7 +293,7 @@ export class RoomView {
             const sprite = scene.add.image(p.x, p.y, p.kind === 'key' ? 'key' : p.kind === 'harpoon' ? 'harpoon-icon' : p.kind === 'health' ? 'pearl' : 'molt-icon').setDepth(12);
             scene.tweens.add({ targets: [sprite, halo], y: p.y - 12, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             scene.tweens.add({ targets: halo, alpha: 0.45, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-            const label = scene.add.text(p.x, p.y + 43, p.kind === 'harpoon' ? 'SALVAGE HARPOON' : p.kind === 'key' ? 'CHAPEL KEY' : p.kind === 'health' ? 'VITAL PEARL' : 'THE MOLT', textStyle(11, '#ddc3ad')).setOrigin(0.5).setDepth(12).setShadow(0, 1, '#000000', 4);
+            const label = plaque(scene, p.x, p.y + 50, p.kind === 'harpoon' ? 'Salvage Harpoon' : p.kind === 'key' ? 'Chapel Key' : p.kind === 'health' ? 'Vital Pearl' : 'The Molt', 'relic', 12);
             this.pickups.push({ data: p, sprite, halo, label });
         }
         this.record = scene.add.image(1600, 852, 'field-record').setOrigin(0.5, 1).setDisplaySize(52, 40).setDepth(11);
