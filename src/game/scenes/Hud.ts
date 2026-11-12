@@ -1,45 +1,77 @@
 import * as Phaser from 'phaser';
-import { COLORS, EVOLUTION_NAMES, GameEvent, SceneKey, type GameSnapshot, type Notice, type UiCommand } from '../constants';
-import { ROOMS, ROOM_IDS, meetsRequirement, type RoomId } from '../world';
-import { makeTextures, serifStyle, textStyle } from '../rendering';
-import { PLAYER_TEXTURES } from '../animation';
+import { EVOLUTION_NAMES, GameEvent, SceneKey, type GameSnapshot, type Notice, type UiCommand } from '../constants';
+import { ROOMS, ROOM_IDS } from '../world';
+import { makeTextures } from '../rendering';
+import { el, keyHint, mountLayer, setText, toggle } from '../ui/layer';
+import { Menu } from '../ui/menu';
+import { drawMap, legendIcon, svg } from '../ui/map';
+
+type Bar = { root: HTMLDivElement; trail: HTMLDivElement; fill: HTMLDivElement; ticks: HTMLDivElement; last: string };
+type ControlRow = [keys: string[], action: string];
+type ControlGroup = [title: string, rows: ControlRow[]];
+
+const KEYBOARD_CONTROLS: ControlGroup[][] = [
+    [['Movement', [[['A', 'D'], 'Move'], [['Space'], 'Jump, hold for height'], [['Shift'], 'Dodge · Dash']]],
+     ['World', [[['E'], 'Interact'], [['M', 'Tab'], 'Map'], [['Esc'], 'Pause']]]],
+    [['Combat', [[['J', 'Click'], 'Slash'], [['Right Mouse'], 'Aim the harpoon'], [['K'], 'Aim with keys']]],
+     ['Crab form', [[['W', 'S'], 'Climb walls'], [['A', 'D'], 'Scuttle ceilings'], [['Space'], 'Drop or let go']]]]
+];
+const GAMEPAD_CONTROLS: ControlGroup[][] = [
+    [['Movement', [[['L Stick'], 'Move'], [['A'], 'Jump, hold for height'], [['B'], 'Dodge · Dash']]],
+     ['World', [[['Y'], 'Interact'], [['View'], 'Map'], [['Menu'], 'Pause']]]],
+    [['Combat', [[['X'], 'Slash'], [['R Stick'], 'Aim'], [['RT'], 'Hold, release to throw']]],
+     ['Crab form', [[['L Stick'], 'Climb and scuttle'], [['A'], 'Drop or let go']]]]
+];
+
+const ENVIRONMENT: Record<GameSnapshot['environment'], (evolution: number) => string> = {
+    water: () => 'Submerged · 2,840 m',
+    air: () => 'Air pocket · oxygen returning',
+    pressure: () => 'High pressure · shell holds',
+    heat: evolution => evolution === 2 ? 'Extreme heat · carapace endures' : 'Extreme heat · shell required'
+};
 
 export class Hud extends Phaser.Scene {
     private snapshot?: GameSnapshot;
-    private bars: Phaser.GameObjects.Graphics;
-    private minimap: Phaser.GameObjects.Graphics;
-    private hp: Phaser.GameObjects.Text;
-    private oxygen: Phaser.GameObjects.Text;
-    private stage: Phaser.GameObjects.Text;
-    private objectiveLabel: Phaser.GameObjects.Text;
-    private prompt: Phaser.GameObjects.Text;
-    private equipment: Phaser.GameObjects.Text;
-    private footer: Phaser.GameObjects.Text;
-    private footerMap: Phaser.GameObjects.Text;
-    private environment: Phaser.GameObjects.Text;
-    private portrait: Phaser.GameObjects.Image;
-    private bossLabel: Phaser.GameObjects.Text;
-    private noticeTitle: Phaser.GameObjects.Text;
-    private noticeBody: Phaser.GameObjects.Text;
-    private noticeBackground: Phaser.GameObjects.Rectangle;
-    private notice: Phaser.GameObjects.Container;
-    private noticeTimer?: Phaser.Time.TimerEvent;
-    private titleCard: Phaser.GameObjects.Container;
-    private titleName: Phaser.GameObjects.Text;
-    private titleSub: Phaser.GameObjects.Text;
-    private bossCard: Phaser.GameObjects.Text;
+    private layer: HTMLDivElement;
+    private vitality: Bar;
+    private oxygenBar: Bar;
+    private hpReadout: HTMLDivElement;
+    private o2Readout: HTMLDivElement;
+    private formName: HTMLDivElement;
+    private formKit: HTMLDivElement;
+    private objective: HTMLDivElement;
+    private surveyRoom: HTMLDivElement;
+    private surveyMap: SVGSVGElement;
+    private surveyEnv: HTMLDivElement;
+    private corner: HTMLDivElement;
+    private prompt: HTMLDivElement;
+    private notice: HTMLDivElement;
+    private noticeTitle: HTMLDivElement;
+    private noticeBody: HTMLDivElement;
+    private boss: HTMLDivElement;
+    private bossName: HTMLDivElement;
+    private bossBar: Bar;
+    private controlsStrip: HTMLDivElement;
+    private card: HTMLDivElement;
+    private cardName: HTMLDivElement;
+    private cardSub: HTMLDivElement;
+    private dirge: HTMLDivElement;
+    private dirgeName: HTMLDivElement;
+    private dirgeSub: HTMLDivElement;
     private vignette: Phaser.GameObjects.Image;
+    private noticeTimer?: Phaser.Time.TimerEvent;
+    private cardTimers: Phaser.Time.TimerEvent[] = [];
+    private dirgeTimer?: Phaser.Time.TimerEvent;
     private shownRoom?: string;
     private lastHealth = -1;
     private trailHealth = 0;
     private trailBoss = 0;
     private hurtFlash = 0;
-    private overlay?: Phaser.GameObjects.Container;
+    private renderKey = '';
+    private overlay?: HTMLDivElement;
     private overlayMode?: 'map' | 'pause';
+    private menu?: Menu;
     private previousPad = new Set<number>();
-    private menuButtons: Phaser.GameObjects.Text[] = [];
-    private menuActions: (() => void)[] = [];
-    private selected = 0;
     private onSnapshot = (data: GameSnapshot) => this.renderSnapshot(data);
     private onNotice = (notice: Notice) => this.showNotice(notice);
     private onCommand = (command: UiCommand) => {
@@ -48,8 +80,8 @@ export class Hud extends Phaser.Scene {
     };
     constructor() { super(SceneKey.Hud); }
     create(): void {
-        this.snapshot = undefined; this.overlay = undefined; this.overlayMode = undefined; this.shownRoom = undefined;
-        this.lastHealth = -1; this.trailHealth = 0; this.trailBoss = 0; this.hurtFlash = 0;
+        this.snapshot = undefined; this.overlay = undefined; this.overlayMode = undefined; this.menu = undefined; this.shownRoom = undefined;
+        this.lastHealth = -1; this.trailHealth = 0; this.trailBoss = 0; this.hurtFlash = 0; this.renderKey = ''; this.cardTimers = [];
         this.previousPad.clear();
         makeTextures(this);
         if (!this.textures.exists('hud-vignette')) {
@@ -58,67 +90,77 @@ export class Hud extends Phaser.Scene {
             ctx.fillStyle = g; ctx.fillRect(0, 0, 320, 180); canvas.refresh();
         }
         this.vignette = this.add.image(640, 360, 'hud-vignette').setDisplaySize(1280, 720).setTint(0xc0302a).setAlpha(0);
-        // A soft gradient replaces the old solid header band so the wreck stays visible.
-        this.add.image(640, 0, 'fog').setOrigin(0.5, 0).setDisplaySize(1280, 150).setFlipY(true).setTint(0x02070c).setAlpha(0.85);
-        const frame = this.add.graphics();
-        frame.fillStyle(0x061019, 0.92).fillCircle(60, 60, 40).lineStyle(2, COLORS.gold, 0.7).strokeCircle(60, 60, 40).lineStyle(1, COLORS.teal, 0.35).strokeCircle(60, 60, 45);
-        this.portrait = this.add.image(60, 62, 'diver', 0).setDisplaySize(74, 74);
-        if (this.game.renderer.type === Phaser.WEBGL) {
-            this.portrait.enableFilters();
-            this.portrait.filters?.internal.addGlow(0x83c9bd, 0.5, 0, 1, false, 0.1, 5);
-        }
-        this.hp = this.add.text(114, 24, 'VITALITY', textStyle(10, '#e7b2a8')).setShadow(0, 1, '#000', 3);
-        this.oxygen = this.add.text(114, 56, 'OXYGEN', textStyle(10, '#a5dcd5')).setShadow(0, 1, '#000', 3);
-        this.stage = this.add.text(114, 88, EVOLUTION_NAMES[0], serifStyle(15, '#e8dcc0')).setShadow(0, 1, '#000', 3);
-        this.equipment = this.add.text(114, 109, 'DODGE  ·  CUTLASS', textStyle(9, '#8eaaa9'));
-        this.objectiveLabel = this.add.text(22, 138, '', textStyle(12, '#c9d6cf')).setWordWrapWidth(360).setShadow(0, 1, '#000', 4).setLineSpacing(3);
-        const mapPanel = this.add.graphics();
-        mapPanel.fillStyle(0x061019, 0.8).fillRoundedRect(1012, 14, 250, 108, 6).lineStyle(1, 0x41616a, 0.8).strokeRoundedRect(1012, 14, 250, 108, 6);
-        this.add.text(1024, 20, 'SURVEY', textStyle(9, '#8caaa9'));
-        this.footerMap = this.add.text(1250, 20, '[M] MAP   [ESC] PAUSE', textStyle(9, '#d6c79c')).setOrigin(1, 0).setInteractive({ useHandCursor: true });
-        this.footerMap.on('pointerdown', () => this.emit({ type: 'pause', mode: 'map' }));
-        this.environment = this.add.text(1024, 104, 'SUBMERGED', textStyle(9, '#94bab8'));
-        this.bars = this.add.graphics(); this.minimap = this.add.graphics();
-        // Boss health sits at the bottom of the screen, framed like an epitaph.
-        this.bossLabel = this.add.text(640, 124, '', serifStyle(19, '#f0c6bd')).setOrigin(0.5).setVisible(false).setShadow(0, 2, '#000', 6).setLetterSpacing(3);
-        this.prompt = this.add.text(640, 548, '', textStyle(15, '#f6e6c0')).setOrigin(0.5).setBackgroundColor('#071621e6').setPadding(16, 9).setShadow(0, 1, '#000', 2);
-        this.noticeBackground = this.add.rectangle(0, 0, 700, 80, 0x061019, 0.9).setStrokeStyle(1, 0x5d7d80, 0.6);
-        this.noticeTitle = this.add.text(0, -26, '', textStyle(11, '#e6c58a')).setOrigin(0.5, 0).setLetterSpacing(2);
-        this.noticeBody = this.add.text(0, -6, '', textStyle(13, '#c7d5d0')).setOrigin(0.5, 0).setAlign('center').setWordWrapWidth(760).setLineSpacing(4);
-        this.notice = this.add.container(640, 640, [this.noticeBackground, this.noticeTitle, this.noticeBody]).setAlpha(0);
-        this.titleName = this.add.text(0, 0, '', serifStyle(44, '#efe2c4')).setOrigin(0.5).setShadow(0, 3, '#000', 10);
-        this.titleSub = this.add.text(0, 44, '', textStyle(11, '#a6c4bf')).setOrigin(0.5).setLetterSpacing(4).setShadow(0, 1, '#000', 4);
-        const rule = this.add.rectangle(0, 26, 360, 1, COLORS.gold, 0.6);
-        this.titleCard = this.add.container(640, 236, [rule, this.titleName, this.titleSub]).setAlpha(0);
-        this.bossCard = this.add.text(640, 330, '', serifStyle(54, '#f3c1b6')).setOrigin(0.5).setAlpha(0).setShadow(0, 4, '#000', 12).setLetterSpacing(6);
-        this.footer = this.add.text(640, 700, '', textStyle(10, '#9db6b6')).setOrigin(0.5).setBackgroundColor('#061019cc').setPadding(14, 6);
+        // A soft shade along the top edge keeps the vitals readable over bright rooms.
+        this.add.image(640, 0, 'fog').setOrigin(0.5, 0).setDisplaySize(1280, 190).setFlipY(true).setTint(0x020406).setAlpha(0.8);
+        this.buildLayer();
+
         const keyboard = this.input.keyboard!;
         const toggleMap = (event: KeyboardEvent) => { if (event.repeat) return; this.emit(this.overlayMode ? { type: 'resume' } : { type: 'pause', mode: 'map' }); };
         const togglePause = (event: KeyboardEvent) => { if (event.repeat) return; this.emit(this.overlayMode ? { type: 'resume' } : { type: 'pause', mode: 'pause' }); };
-        const up = () => { if (this.overlayMode === 'pause') this.selectMenu(this.selected - 1); };
-        const down = () => { if (this.overlayMode === 'pause') this.selectMenu(this.selected + 1); };
-        const choose = () => { if (this.overlayMode === 'pause') this.menuActions[this.selected]?.(); };
-        keyboard.on('keydown-UP', up); keyboard.on('keydown-DOWN', down); keyboard.on('keydown-ENTER', choose);
-        keyboard.on('keydown-M', toggleMap); keyboard.on('keydown-TAB', toggleMap); keyboard.on('keydown-ESC', togglePause);
+        const up = () => { if (this.overlayMode === 'pause') this.menu?.move(-1); };
+        const down = () => { if (this.overlayMode === 'pause') this.menu?.move(1); };
+        const choose = () => { if (this.overlayMode === 'pause') this.menu?.confirm(); };
+        const bindings: [string, (event: KeyboardEvent) => void][] = [
+            ['keydown-UP', up], ['keydown-W', up], ['keydown-DOWN', down], ['keydown-S', down], ['keydown-ENTER', choose], ['keydown-SPACE', choose],
+            ['keydown-M', toggleMap], ['keydown-TAB', toggleMap], ['keydown-ESC', togglePause]
+        ];
+        for (const [event, handler] of bindings) keyboard.on(event, handler);
         this.game.events.on(GameEvent.Snapshot, this.onSnapshot);
         this.game.events.on(GameEvent.Notice, this.onNotice);
         this.game.events.on(GameEvent.Command, this.onCommand);
         this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
             this.game.events.off(GameEvent.Snapshot, this.onSnapshot); this.game.events.off(GameEvent.Notice, this.onNotice); this.game.events.off(GameEvent.Command, this.onCommand);
-            keyboard.off('keydown-UP', up); keyboard.off('keydown-DOWN', down); keyboard.off('keydown-ENTER', choose);
-            keyboard.off('keydown-M', toggleMap); keyboard.off('keydown-TAB', toggleMap); keyboard.off('keydown-ESC', togglePause);
-            this.noticeTimer?.remove(); this.closeOverlay();
+            for (const [event, handler] of bindings) keyboard.off(event, handler);
+            this.noticeTimer?.remove(); this.dirgeTimer?.remove(); this.cardTimers.forEach(t => t.remove()); this.closeOverlay();
         });
+    }
+    private buildLayer(): void {
+        const layer = this.layer = mountLayer(this, 'hud');
+        const play = el('div', 'hud-play', undefined, layer);
+
+        const vitals = el('div', 'vitals', undefined, play);
+        this.vitality = this.bar(vitals, 'vitality'); this.hpReadout = el('div', 'readout', undefined, vitals);
+        this.oxygenBar = this.bar(vitals, 'oxygen thin'); this.o2Readout = el('div', 'readout', undefined, vitals);
+        const form = el('div', 'form', undefined, play);
+        this.formName = el('div', 'form-name', undefined, form); this.formKit = el('div', 'form-kit', undefined, form);
+        const objective = el('div', 'objective', undefined, play);
+        el('div', 'objective-label', 'Objective', objective); this.objective = el('div', 'objective-text', undefined, objective);
+
+        const survey = el('div', 'survey', undefined, play);
+        this.surveyRoom = el('div', 'survey-room', undefined, survey);
+        this.surveyMap = svg('svg', { class: 'survey-map', width: 236, height: 100, viewBox: '0 0 236 100' }, survey);
+        this.surveyEnv = el('div', 'survey-env', undefined, survey);
+        this.corner = el('div', 'corner-hints', undefined, play);
+        this.corner.addEventListener('pointerdown', event => { event.stopPropagation(); this.emit({ type: 'pause', mode: 'map' }); });
+
+        const stack = el('div', 'bottom-stack', undefined, play);
+        this.prompt = el('div', 'prompt', undefined, stack);
+        this.notice = el('div', 'notice', undefined, stack);
+        this.noticeTitle = el('div', 'notice-title', undefined, this.notice); this.noticeBody = el('div', 'notice-body', undefined, this.notice);
+        this.boss = el('div', 'boss', undefined, stack);
+        this.bossName = el('div', 'boss-name', undefined, this.boss); this.bossBar = this.bar(this.boss, 'boss-bar');
+        this.controlsStrip = el('div', 'controls-strip', undefined, stack);
+
+        this.card = el('div', 'card', undefined, play);
+        this.cardName = el('div', 'card-name', undefined, this.card); el('div', 'rule', undefined, this.card); this.cardSub = el('div', 'card-sub', undefined, this.card);
+        this.dirge = el('div', 'card dirge', undefined, layer);
+        this.dirgeName = el('div', 'card-name', undefined, this.dirge); el('div', 'rule', undefined, this.dirge).style.width = '640px'; this.dirgeSub = el('div', 'card-sub', undefined, this.dirge);
+    }
+    private bar(parent: HTMLElement, kind: string): Bar {
+        const root = el('div', `bar ${kind}`, undefined, parent);
+        return { root, trail: el('div', 'trail', undefined, root), fill: el('div', 'fill', undefined, root), ticks: el('div', 'ticks', undefined, root), last: '' };
+    }
+    private setBar(bar: Bar, ratio: number, trail: number): void {
+        const key = `${(Phaser.Math.Clamp(ratio, 0, 1) * 100).toFixed(1)}|${(Phaser.Math.Clamp(trail, 0, 1) * 100).toFixed(1)}`;
+        if (key === bar.last) return; bar.last = key;
+        const [f, t] = key.split('|'); bar.fill.style.width = `${f}%`; bar.trail.style.width = `${t}%`;
     }
     private emit(command: UiCommand): void { this.game.events.emit(GameEvent.Command, command); }
     private showTitleCard(data: GameSnapshot): void {
-        this.titleName.setText(data.roomName); this.titleSub.setText(ROOMS[data.room].subtitle);
-        this.tweens.killTweensOf(this.titleCard);
-        this.titleCard.setAlpha(0).setY(250);
-        this.tweens.chain({ targets: this.titleCard, tweens: [
-            { alpha: 1, y: 236, duration: 700, ease: 'Cubic.Out', delay: 250 },
-            { alpha: 0, y: 228, duration: 900, ease: 'Sine.In', delay: 1900 }
-        ] });
+        setText(this.cardName, data.roomName); setText(this.cardSub, ROOMS[data.room].subtitle);
+        this.cardTimers.forEach(t => t.remove());
+        this.card.classList.remove('show');
+        this.cardTimers = [this.time.delayedCall(250, () => this.card.classList.add('show')), this.time.delayedCall(2850, () => this.card.classList.remove('show'))];
     }
     private renderSnapshot(data: GameSnapshot): void {
         this.snapshot = data;
@@ -127,137 +169,143 @@ export class Hud extends Phaser.Scene {
         if (this.lastHealth < 0) this.trailHealth = data.health;
         this.lastHealth = data.health;
         const lowHealth = data.health / data.maxHealth < 0.3, lowOxygen = data.oxygen < 30;
-        this.hp.setText(`VITALITY   ${Math.ceil(data.health)} / ${data.maxHealth}`);
-        this.oxygen.setText(`OXYGEN   ${Math.ceil(data.oxygen)}s${data.environment === 'air' ? '   ▲ REPLENISHING' : ''}`).setColor(lowOxygen ? '#ff9f92' : '#a5dcd5');
-        const tutorial = data.room === 'hull' && !data.harpoon;
-        this.footer.setVisible(tutorial && !data.paused).setText(data.gamepad ? 'L STICK  MOVE    A  JUMP    X  SLASH    B  DODGE / DASH    Y  INTERACT    RT  AIM / RELEASE' : 'A D  MOVE    SPACE  JUMP    J / CLICK  SLASH    SHIFT  DODGE / DASH    E  INTERACT    M  MAP');
-        this.footerMap.setText(data.gamepad ? '[VIEW] MAP   [MENU] PAUSE' : '[M] MAP   [ESC] PAUSE');
-        this.stage.setText(EVOLUTION_NAMES[data.evolution]); this.portrait.setTexture(PLAYER_TEXTURES[data.evolution], 24);
-        this.equipment.setText(`${data.evolution >= 1 ? 'CLAW · DASH' : 'KNIFE · DODGE'}${data.evolution === 2 ? ' · SCUTTLE' : ''}${data.harpoon ? ' · HARPOON' : ''}${data.key ? ' · KEY' : ''}`);
-        this.environment.setText(data.environment === 'heat' ? data.evolution === 2 ? 'EXTREME HEAT · CARAPACE ADAPTED' : 'EXTREME HEAT · SHELL REQUIRED' : data.environment === 'air' ? 'AIR POCKET · O₂ REPLENISHING' : data.environment === 'pressure' ? 'HIGH PRESSURE · SHELL ADAPTED' : 'SUBMERGED · 2,840 M').setColor(data.environment === 'heat' ? '#ffba80' : data.environment === 'air' ? '#bfe9cf' : data.environment === 'pressure' ? '#c8a8ff' : '#94bab8');
-        this.objectiveLabel.setText(`◆  ${data.objective}`);
-        this.prompt.setText(data.prompt).setVisible(!!data.prompt && !data.paused);
-        this.drawBars();
-        this.drawMap(this.minimap, 1030, 38, 30, 16, false);
-        this.bossLabel.setVisible(!!data.boss);
-        if (data.boss) this.bossLabel.setText(data.boss.name);
+
+        const hpWidth = Math.min(380, 260 * data.maxHealth / 100);
+        if (this.vitality.root.style.width !== `${hpWidth}px`) {
+            this.vitality.root.style.width = `${hpWidth}px`; this.oxygenBar.root.style.width = '260px';
+            const segment = hpWidth / (data.maxHealth / 20);
+            this.vitality.ticks.style.backgroundImage = `repeating-linear-gradient(90deg, transparent 0 ${segment - 2}px, rgba(0,0,0,0.75) ${segment - 2}px ${segment}px)`;
+            this.oxygenBar.ticks.style.backgroundImage = 'repeating-linear-gradient(90deg, transparent 0 63px, rgba(0,0,0,0.75) 63px 65px)';
+        }
+        const hp = `${Math.ceil(data.health)}<span class="of"> / ${data.maxHealth}</span>`;
+        const o2 = `${Math.ceil(data.oxygen)}<span class="of">s</span>${data.environment === 'air' ? '<span class="tag">▲ Breathing</span>' : ''}`;
+        if (this.hpReadout.dataset.html !== hp) { this.hpReadout.dataset.html = hp; this.hpReadout.innerHTML = hp; }
+        if (this.o2Readout.dataset.html !== o2) { this.o2Readout.dataset.html = o2; this.o2Readout.innerHTML = o2; }
+        toggle(this.hpReadout, 'critical', lowHealth); toggle(this.vitality.root, 'critical', lowHealth);
+        toggle(this.o2Readout, 'critical', lowOxygen); toggle(this.oxygenBar.root, 'critical', lowOxygen);
+
+        setText(this.formName, EVOLUTION_NAMES[data.evolution]);
+        const kit = [data.evolution >= 1 ? 'Claw' : 'Knife', data.evolution >= 1 ? 'Dash' : 'Dodge'];
+        if (data.evolution === 2) kit.push('Scuttle'); if (data.harpoon) kit.push('Harpoon'); if (data.key) kit.push('Chapel Key');
+        setText(this.formKit, kit.join('  ·  '));
+        setText(this.objective, data.objective);
+
+        setText(this.surveyRoom, data.roomName);
+        this.surveyEnv.className = `survey-env env-${data.environment}`;
+        if (!this.surveyEnv.firstChild || this.surveyEnv.dataset.text !== ENVIRONMENT[data.environment](data.evolution)) {
+            const text = this.surveyEnv.dataset.text = ENVIRONMENT[data.environment](data.evolution);
+            this.surveyEnv.replaceChildren(el('span', 'dot')); this.surveyEnv.append(text);
+        }
+        const mapKey = `${data.room}|${data.explored.join()}|${data.checkpoint}|${data.harpoon}|${data.evolution}|${data.key}|${Math.round(data.position.x * 20)}|${Math.round(data.position.y * 10)}`;
+        if (mapKey !== this.renderKey) { this.renderKey = mapKey; drawMap(this.surveyMap, data, 36, 22, false); }
+
+        const inputKey = data.gamepad ? 'pad' : 'keys';
+        if (this.corner.dataset.input !== inputKey) {
+            this.corner.dataset.input = inputKey; this.corner.replaceChildren();
+            keyHint([data.gamepad ? 'View' : 'M'], 'Map', this.corner); keyHint([data.gamepad ? 'Menu' : 'Esc'], 'Pause', this.corner);
+            this.controlsStrip.replaceChildren();
+            const strip: ControlRow[] = data.gamepad
+                ? [[['L Stick'], 'Move'], [['A'], 'Jump'], [['X'], 'Slash'], [['B'], 'Dodge'], [['Y'], 'Interact']]
+                : [[['A', 'D'], 'Move'], [['Space'], 'Jump'], [['J'], 'Slash'], [['Shift'], 'Dodge'], [['E'], 'Interact']];
+            for (const [keys, action] of strip) keyHint(keys, action, this.controlsStrip);
+        }
+        toggle(this.controlsStrip, 'show', data.room === 'hull' && !data.harpoon && !data.paused && !data.boss);
+
+        this.renderPrompt(data);
+        toggle(this.boss, 'show', !!data.boss);
+        if (data.boss) { setText(this.bossName, data.boss.name); toggle(this.boss, 'enraged', data.boss.health < data.boss.maxHealth / 2); }
         this.vignette.setTint(lowOxygen && !lowHealth ? 0x1a6a8a : 0xc0302a);
     }
-    private drawBars(): void {
-        const data = this.snapshot; if (!data) return;
-        const g = this.bars; g.clear();
-        const hpW = Math.min(360, 240 * data.maxHealth / 100), o2W = 260;
-        const bar = (x: number, y: number, w: number, h: number, fill: number, ratio: number, trail: number, ticks: number) => {
-            g.fillStyle(0x02080d, 0.9).fillRect(x - 2, y - 2, w + 4, h + 4);
-            g.fillStyle(0x1b2c33).fillRect(x, y, w, h);
-            g.fillStyle(0xf6efe0, 0.7).fillRect(x, y, w * Phaser.Math.Clamp(trail, 0, 1), h);
-            g.fillStyle(fill).fillRect(x, y, w * Phaser.Math.Clamp(ratio, 0, 1), h);
-            g.fillStyle(0xffffff, 0.22).fillRect(x, y, w * Phaser.Math.Clamp(ratio, 0, 1), 2);
-            g.fillStyle(0x02080d, 0.8); for (let i = 1; i < ticks; i++) g.fillRect(x + w * i / ticks - 1, y, 2, h);
-        };
-        const pulse = 0.65 + Math.sin(this.time.now / 120) * 0.35;
-        const lowHealth = data.health / data.maxHealth < 0.3;
-        bar(114, 40, hpW, 9, lowHealth ? Phaser.Display.Color.GetColor(233, 90 + 40 * pulse, 90) : COLORS.coral, data.health / data.maxHealth, this.trailHealth / data.maxHealth, data.maxHealth / 20);
-        bar(114, 72, o2W, 7, data.oxygen < 30 ? (pulse > 0.6 ? COLORS.coral : 0x9a4a4a) : COLORS.teal, data.oxygen / 120, data.oxygen / 120, 4);
-        if (data.boss) {
-            const w = 440, x = 640 - w / 2, y = 142;
-            g.fillStyle(0x02080d, 0.85).fillRect(x - 4, y - 4, w + 8, 18);
-            g.lineStyle(1, 0x9a6a64, 0.8).strokeRect(x - 4, y - 4, w + 8, 18);
-            g.fillStyle(0x2a1a20).fillRect(x, y, w, 10);
-            g.fillStyle(0xfff0e0, 0.75).fillRect(x, y, w * this.trailBoss / data.boss.maxHealth, 10);
-            g.fillStyle(data.boss.health < data.boss.maxHealth / 2 ? 0xc87ae0 : 0xd6726a).fillRect(x, y, w * data.boss.health / data.boss.maxHealth, 10);
-            g.fillStyle(0xffffff, 0.25).fillRect(x, y, w * data.boss.health / data.boss.maxHealth, 2);
-            g.fillStyle(COLORS.gold).fillTriangle(x - 12, y + 5, x - 4, y, x - 4, y + 10).fillTriangle(x + w + 12, y + 5, x + w + 4, y, x + w + 4, y + 10);
+    private renderPrompt(data: GameSnapshot): void {
+        const text = data.paused ? '' : data.prompt;
+        if (this.prompt.dataset.text === `${text}|${data.gamepad}`) return;
+        this.prompt.dataset.text = `${text}|${data.gamepad}`;
+        this.prompt.replaceChildren(); toggle(this.prompt, 'show', !!text);
+        if (!text) return;
+        const match = /^\[([^\]]+)\]\s*(.*)$/.exec(text);
+        if (match && match[1] === 'SEALED') {
+            const lock = el('span', '', '◆ Sealed', this.prompt); lock.style.cssText = 'font-family: var(--display); font-size: 14px; letter-spacing: 0.2em; color: var(--blood-hi);';
+            el('span', 'hint-action', match[2], this.prompt);
+        } else if (match) {
+            const keys = match[1].split('/').map(k => k.trim());
+            keyHint([data.gamepad ? keys[keys.length - 1] : keys[0]], match[2], this.prompt);
+        } else {
+            const plain = el('span', '', text.charAt(0) + text.slice(1).toLowerCase(), this.prompt); plain.style.color = 'var(--verdigris-hi)';
         }
     }
     private showNotice(notice: Notice): void {
-        if (notice.boss) {
-            this.tweens.killTweensOf(this.bossCard); this.tweens.killTweensOf(this.titleCard);
-            this.tweens.add({ targets: this.titleCard, alpha: 0, duration: 200 });
-            this.bossCard.setText(notice.title).setAlpha(0).setScale(1.25);
-            this.tweens.chain({ targets: this.bossCard, tweens: [
-                { alpha: 1, scale: 1, duration: 500, ease: 'Back.Out' },
-                { alpha: 0, duration: 800, delay: notice.duration - 1300 }
-            ] });
+        if (notice.boss || notice.death) {
+            this.dirgeTimer?.remove();
+            this.cardTimers.forEach(t => t.remove()); this.card.classList.remove('show');
+            this.dirge.classList.toggle('death', !!notice.death);
+            setText(this.dirgeName, notice.title); setText(this.dirgeSub, notice.body);
+            this.dirge.classList.remove('show'); void this.dirge.offsetWidth; this.dirge.classList.add('show');
+            this.dirgeTimer = this.time.delayedCall(Math.max(900, notice.duration - 900), () => this.dirge.classList.remove('show'));
             return;
         }
-        this.noticeTimer?.remove(); this.noticeTitle.setText(notice.title); this.noticeBody.setText(notice.body);
-        const w = Math.max(this.noticeTitle.width, this.noticeBody.width) + 70, h = this.noticeBody.height + 46;
-        this.noticeBackground.setSize(w, h).setDisplaySize(w, h); this.noticeBackground.geom.setSize(w, h); this.noticeBackground.setPosition(0, h / 2 - 34);
-        this.noticeBackground.setOrigin(0.5);
-        this.tweens.killTweensOf(this.notice);
-        this.notice.setY(650).setAlpha(0);
-        this.tweens.add({ targets: this.notice, alpha: 1, y: this.notice.y - 10, duration: 280, ease: 'Cubic.Out' });
-        this.noticeTimer = this.time.delayedCall(notice.duration, () => this.tweens.add({ targets: this.notice, alpha: 0, duration: 450 }));
-    }
-    private drawMap(g: Phaser.GameObjects.Graphics, ox: number, oy: number, sx: number, sy: number, full: boolean, container?: Phaser.GameObjects.Container): void {
-        g.clear(); const data = this.snapshot; if (!data) return;
-        const explored = new Set(data.explored), hidden = new Set<RoomId>(['handcrab', 'hermit']);
-        const visible = new Set<RoomId>(data.explored);
-        for (const id of data.explored) for (const door of ROOMS[id].doors) if (!hidden.has(door.to)) visible.add(door.to);
-        const w = sx * 0.77, h = sy * 0.64;
-        const pos = (id: RoomId) => ({ x: ox + ROOMS[id].map[0] * sx, y: oy + ROOMS[id].map[1] * sy });
-        for (const id of ROOM_IDS) {
-            if (!explored.has(id)) continue;
-            const a = pos(id);
-            for (const d of ROOMS[id].doors) {
-                if (!visible.has(d.to) || hidden.has(d.to) && !explored.has(d.to)) continue;
-                const b = pos(d.to); const open = meetsRequirement(d.requires, data);
-                g.lineStyle(full ? 2 : 1, open ? 0x42636b : 0x9f6569, 0.85).lineBetween(a.x + w / 2, a.y + h / 2, b.x + w / 2, b.y + h / 2);
-                if (!open) g.fillStyle(COLORS.coral).fillRect((a.x + b.x + w) / 2 - 3, (a.y + b.y + h) / 2 - 3, 6, 6);
-            }
-        }
-        for (const id of ROOM_IDS) {
-            if (!visible.has(id)) continue;
-            const r = ROOMS[id], p = pos(id), known = explored.has(id), current = id === data.room;
-            g.fillStyle(current ? 0x285555 : known ? 0x19333f : 0x0a1824).fillRect(p.x, p.y, w, h);
-            g.lineStyle(1, current ? COLORS.gold : known ? 0x658c8d : 0x2a414e).strokeRect(p.x, p.y, w, h);
-            if (known && r.station) g.lineStyle(1.5, COLORS.teal).strokeCircle(p.x + (full ? 11 : 4), p.y + (full ? 11 : 4), full ? 4 : 2);
-            if (known && r.station && data.checkpoint === id) g.fillStyle(COLORS.teal).fillCircle(p.x + (full ? 11 : 4), p.y + (full ? 11 : 4), full ? 2 : 1);
-            if (current) g.fillStyle(COLORS.gold).fillCircle(p.x + Math.max(3, Math.min(w - 3, data.position.x * w)), p.y + Math.max(3, Math.min(h - 3, data.position.y * h)), full ? 3 : 2);
-            if (full && container) {
-                const label = this.add.text(p.x + w / 2, p.y + h + 9, known ? r.name.replace('The ', '') : 'Unsurveyed', textStyle(10, known ? '#b6c9c3' : '#4d6a75')).setOrigin(0.5, 0);
-                container.add(label);
-            }
-        }
+        this.noticeTimer?.remove();
+        setText(this.noticeTitle, notice.title); setText(this.noticeBody, notice.body);
+        this.notice.classList.remove('show'); void this.notice.offsetWidth; this.notice.classList.add('show');
+        this.noticeTimer = this.time.delayedCall(notice.duration, () => this.notice.classList.remove('show'));
     }
     private openOverlay(mode: 'map' | 'pause'): void {
         if (this.overlayMode === mode) return;
-        this.closeOverlay(); this.overlayMode = mode; this.menuButtons = []; this.menuActions = []; this.selected = 0;
-        this.overlay = this.add.container(0, 0).setDepth(100);
-        const add = <T extends Phaser.GameObjects.GameObject>(object: T): T => { this.overlay!.add(object); return object; };
-        add(this.add.rectangle(640, 360, 1280, 720, COLORS.ink, 1));
-        add(this.add.text(50, 36, 'M O L O T O L O G Y  /  F I E L D  S U R V E Y', textStyle(10, '#91aca9')));
-        add(this.add.text(50, 77, mode === 'map' ? 'The Wreck' : 'A moment above the dark.', serifStyle(46)));
-        add(this.add.text(52, 142, mode === 'map' ? `${this.snapshot?.explored.length ?? 0} / ${ROOM_IDS.length} CHAMBERS EXPLORED     ·     ${this.snapshot?.roomName ?? ''}` : 'PAUSED · YOUR OXYGEN RESERVE IS SAFE', textStyle(12, '#93b8b5')));
-        const close = add(this.add.text(1180, 45, '[ESC] CLOSE', textStyle(11, '#d5bd8b')).setOrigin(1, 0).setInteractive({ useHandCursor: true })); close.on('pointerdown', () => this.emit({ type: 'resume' }));
+        this.closeOverlay(); this.overlayMode = mode;
+        const data = this.snapshot;
+        const overlay = this.overlay = el('div', `overlay overlay-${mode}`, undefined, this.layer);
+        this.layer.classList.add('hidden-for-overlay');
+        const head = el('div', 'overlay-head', undefined, overlay);
+        el('div', 'eyebrow', mode === 'map' ? 'Field Survey' : 'Paused', head);
+        el('div', 'overlay-title', mode === 'map' ? 'The Wreck' : 'A moment above the dark', head);
+        el('div', 'overlay-sub', mode === 'map' ? `${data?.explored.length ?? 0} of ${ROOM_IDS.length} chambers explored · you are in ${data?.roomName ?? 'the wreck'}` : 'Your oxygen is held while you rest here.', head);
+        el('div', 'rule left', undefined, head);
+        const close = el('div', 'overlay-close', undefined, overlay);
+        keyHint([data?.gamepad ? 'B' : 'Esc'], 'Close', close);
+        close.addEventListener('pointerdown', event => { event.stopPropagation(); this.emit({ type: 'resume' }); });
+        const foot = el('div', 'overlay-foot', undefined, overlay);
+
         if (mode === 'map') {
-            const map = add(this.add.graphics()); this.drawMap(map, 215, 220, 145, 85, true, this.overlay);
-            add(this.add.text(52, 623, '● YOU     ○ OXYGEN STATION     ■ SEALED PASSAGE     ─ CONNECTION', textStyle(11, '#92b4b0')));
-            add(this.add.text(52, 658, this.snapshot?.objective ?? '', serifStyle(18, '#d6c5a3')));
+            const wrap = el('div', 'map-wrap', undefined, overlay);
+            const map = svg('svg', { width: 900, height: 360, viewBox: '0 0 900 360' }, wrap);
+            if (data) drawMap(map, data, 152, 90, true);
+            const legend = el('div', 'map-legend', undefined, foot);
+            for (const [kind, label] of [['you', 'You'], ['station', 'Oxygen station · save'], ['sealed', 'Sealed passage'], ['room', 'Unsurveyed']] as const) {
+                const item = el('span', '', undefined, legend); item.appendChild(legendIcon(kind)); item.append(label);
+            }
+            const objective = el('div', 'map-objective', undefined, foot);
+            el('span', 'eyebrow', 'Objective', objective); el('span', '', data?.objective ?? '', objective);
+            objective.style.maxWidth = '560px';
         } else {
-            add(this.add.image(960, 395, PLAYER_TEXTURES[this.snapshot?.evolution ?? 0], 24).setDisplaySize(350, 350).setAlpha(0.35));
-            const buttons: [string, () => void][] = [
-                ['Resume descent', () => this.emit({ type: 'resume' })],
-                ['Survey the wreck', () => this.openOverlay('map')],
-                [`Sound: ${this.sound.mute ? 'off' : 'on'}`, () => { this.emit({ type: 'mute' }); this.closeOverlay(); this.openOverlay('pause'); }],
-                ['Save & return to title', () => this.emit({ type: 'menu' })]
-            ];
-            buttons.forEach(([label, action], i) => {
-                const button = add(this.add.text(68, 218 + i * 58, label, serifStyle(25, '#c9d0bf')).setInteractive({ useHandCursor: true }));
-                this.menuButtons.push(button); this.menuActions.push(action);
-                button.on('pointerover', () => this.selectMenu(i)).on('pointerdown', action);
-            });
-            this.selectMenu(0);
-            add(this.add.text(68, 490, 'KEYBOARD & MOUSE\nA / D move · Space jump / mantle · Shift dodge / Dash\nJ / click knife or claw · Right mouse aim / release Harpoon\nE interact · M / Tab map · Escape pause · K + direction aim\nCRAB: press toward walls · W / S climb · A / D ceiling scuttle\nSpace / Down drop from ceilings · Space releases a grapple', textStyle(12, '#839f9f')).setLineSpacing(7));
-            add(this.add.text(68, 630, 'GAMEPAD   Left stick move · A jump · X slash · B dodge / Dash\nRight stick aim + RT hold / release Harpoon · Y interact · View map · Menu resume', textStyle(12, '#839f9f')).setLineSpacing(8));
+            const holder = el('div', 'pause-menu', undefined, overlay);
+            this.menu = new Menu(holder, [
+                { label: 'Resume', action: () => this.emit({ type: 'resume' }) },
+                { label: 'Survey the Wreck', action: () => this.openOverlay('map') },
+                { label: this.soundLabel(), action: () => { this.emit({ type: 'mute' }); this.menu?.setLabel(2, this.soundLabel()); } },
+                { label: 'Return to Title', note: 'Your progress is saved', action: () => this.emit({ type: 'menu' }) }
+            ], 'left');
+            const controls = el('div', 'pause-controls', undefined, overlay);
+            el('div', 'eyebrow', data?.gamepad ? 'Controls · Gamepad' : 'Controls · Keyboard and Mouse', controls);
+            const columns = el('div', '', undefined, controls); columns.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; column-gap: 36px;';
+            for (const column of data?.gamepad ? GAMEPAD_CONTROLS : KEYBOARD_CONTROLS) {
+                const grid = el('div', 'control-grid', undefined, columns); grid.style.gridTemplateColumns = '132px 1fr';
+                for (const [title, rows] of column) {
+                    el('div', 'control-group', title, grid);
+                    for (const [keys, action] of rows) {
+                        const cell = el('div', 'control-keys', undefined, grid);
+                        keys.forEach((k, i) => { if (i) el('span', 'hint-or', '/', cell); el('kbd', 'key', k, cell); });
+                        el('div', 'control-action', action, grid);
+                    }
+                }
+            }
+            el('div', '', 'The harpoon only bites on golden anchor rings.', foot).style.fontStyle = 'italic';
+            const nav = el('div', '', undefined, foot);
+            keyHint(data?.gamepad ? ['D-Pad'] : ['↑', '↓'], 'Select', nav); keyHint([data?.gamepad ? 'A' : 'Enter'], 'Confirm', nav);
         }
     }
-    private closeOverlay(): void { this.overlay?.destroy(true); this.overlay = undefined; this.overlayMode = undefined; }
-    private selectMenu(index: number): void {
-        if (!this.menuButtons.length) return;
-        this.selected = (index + this.menuButtons.length) % this.menuButtons.length;
-        this.menuButtons.forEach((b, i) => b.setColor(i === this.selected ? '#f0d3a0' : '#91aaa7'));
+    private soundLabel(): string { return `Sound: ${this.sound.mute ? 'Off' : 'On'}`; }
+    private closeOverlay(): void {
+        this.overlay?.remove(); this.overlay = undefined; this.overlayMode = undefined; this.menu = undefined;
+        this.layer?.classList.remove('hidden-for-overlay');
     }
     update(_time: number, delta: number): void {
         const dt = delta / 1000, data = this.snapshot;
@@ -267,7 +315,9 @@ export class Hud extends Phaser.Scene {
             this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.6);
             const danger = !data.paused && (data.health / data.maxHealth < 0.3 || data.oxygen < 30) ? 0.25 + Math.sin(this.time.now / 180) * 0.12 : 0;
             this.vignette.setAlpha(Math.max(this.hurtFlash, danger));
-            this.drawBars();
+            this.setBar(this.vitality, data.health / data.maxHealth, this.trailHealth / data.maxHealth);
+            this.setBar(this.oxygenBar, data.oxygen / 120, data.oxygen / 120);
+            if (data.boss) this.setBar(this.bossBar, data.boss.health / data.boss.maxHealth, this.trailBoss / data.boss.maxHealth);
         }
         const pad = Array.from(navigator.getGamepads?.() ?? []).find(p => p?.connected);
         if (!pad) { this.previousPad.clear(); return; }
@@ -276,9 +326,9 @@ export class Hud extends Phaser.Scene {
             if (edge(8) || edge(9) || edge(1)) this.emit({ type: 'resume' });
             else if (this.overlayMode === 'map' && edge(0)) this.emit({ type: 'resume' });
             else if (this.overlayMode === 'pause') {
-                if (edge(12)) this.selectMenu(this.selected - 1);
-                if (edge(13)) this.selectMenu(this.selected + 1);
-                if (edge(0)) this.menuActions[this.selected]?.();
+                if (edge(12)) this.menu?.move(-1);
+                if (edge(13)) this.menu?.move(1);
+                if (edge(0)) this.menu?.confirm();
             }
         }
         this.previousPad.clear(); pad.buttons.forEach((b, i) => { if (b.pressed) this.previousPad.add(i); });

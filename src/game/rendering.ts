@@ -6,8 +6,20 @@ import type { Player } from './systems/Player';
 import { Atmosphere, softTexture } from './atmosphere';
 import { Flicker, roomDarkness } from './lighting';
 
-export const textStyle = (size = 16, color = '#b9ccca'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Arial, sans-serif', fontSize: `${size}px`, color, resolution: 2 });
-export const serifStyle = (size = 32, color = '#e5dac0'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Georgia, serif', fontSize: `${size}px`, color, resolution: 2 });
+/** In-world labels (door names, stations, pickups) use the same inscriptional capitals as the interface. */
+export const textStyle = (size = 16, color = '#b9ccca'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Cinzel, Georgia, serif', fontStyle: '600', fontSize: `${Math.max(13, size + 2)}px`, color, resolution: 3 });
+export const serifStyle = (size = 32, color = '#e5dac0'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: '"EB Garamond", Georgia, serif', fontSize: `${size}px`, color, resolution: 3 });
+
+/**
+ * The game renders with `pixelArt`, which samples every texture with NEAREST
+ * filtering. That keeps sprites crisp but shreds text glyphs, so text objects
+ * are switched to smooth filtering as they are added to a scene.
+ */
+export function smoothText(scene: Phaser.Scene): void {
+    const onAdded = (object: Phaser.GameObjects.GameObject) => { if (object instanceof Phaser.GameObjects.Text) object.texture.setFilter(Phaser.Textures.FilterMode.LINEAR); };
+    scene.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, onAdded);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => scene.events.off(Phaser.Scenes.Events.ADDED_TO_SCENE, onAdded));
+}
 
 /** Per-chamber art direction: every room shares the wreck, but not its mood. */
 export interface RoomTheme {

@@ -1,4 +1,10 @@
 import * as Phaser from 'phaser';
+import '@fontsource/cinzel/400.css';
+import '@fontsource/cinzel/600.css';
+import '@fontsource/eb-garamond/400.css';
+import '@fontsource/eb-garamond/400-italic.css';
+import '@fontsource/eb-garamond/500.css';
+import './ui/ui.css';
 import { GAME_HEIGHT, GAME_WIDTH } from './constants';
 import { Boot } from './scenes/Boot';
 import { Preloader } from './scenes/Preloader';
