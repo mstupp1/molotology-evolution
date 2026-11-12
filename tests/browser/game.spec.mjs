@@ -68,11 +68,38 @@ test('Harpoon pulls to the mandatory high ledge without passing through platform
     await start(page); await fixture(page, 'bell', { harpoon: true }); await place(page, 900, 850);
     await page.waitForTimeout(400);
     const anchor = await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game, a = s.room.anchors[0]; return { x: a.x - s.cameras.main.scrollX, y: a.y - s.cameras.main.scrollY }; });
-    await page.mouse.move(anchor.x, anchor.y); await page.mouse.down({ button: 'right' }); await page.waitForTimeout(200); await page.mouse.up({ button: 'right' });
+    // Charge to full power so the shot reaches the ring before drag and sinking bend it away.
+    await page.mouse.move(anchor.x, anchor.y); await page.mouse.down({ button: 'right' });
+    await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.keys.Game.harpoon.charge.full); await page.mouse.up({ button: 'right' });
     await expect.poll(async () => (await state(page)).x, { timeout: 6000 }).toBeGreaterThan(1130);
     await expect.poll(async () => (await state(page)).feet, { timeout: 4000 }).toBeCloseTo(500, 0);
     await page.screenshot({ path: 'art/qa/grapple.png' });
     await travel(page, 'rigging'); expect((await state(page)).room).toBe('rigging');
+});
+
+test('Harpoon charge: a tap fires a weak shot, releasing in the flash fires a perfect one', async ({ page }) => {
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    await start(page); await fixture(page, 'bell', { harpoon: true }); await place(page, 450, 850);
+    // Record every shot as it leaves the gun, so a fast shot cannot slip between polls.
+    await page.evaluate(() => {
+        const h = window.__MOLOTOLOGY__.scene.keys.Game.harpoon, fire = h.throw.bind(h); window.__shots = [];
+        h.throw = (x, y) => { const ok = fire(x, y); if (ok) window.__shots.push({ ...h.shot }); return ok; };
+    });
+    const shots = () => page.evaluate(() => window.__shots);
+    const ready = () => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.harpoon.mode === 'ready');
+    const aim = await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game, p = s.player; return { x: p.centerX + 500 - s.cameras.main.scrollX, y: p.centerY - 60 - s.cameras.main.scrollY }; });
+    await page.mouse.move(aim.x, aim.y); await page.mouse.down({ button: 'right' }); await page.waitForTimeout(120); await page.mouse.up({ button: 'right' });
+    await expect.poll(async () => (await shots()).length).toBe(1);
+    const [tap] = await shots(); expect(tap.perfect).toBe(false); expect(tap.power).toBeLessThan(0.75);
+    await expect.poll(ready, { timeout: 6000 }).toBe(true);
+    await page.mouse.down({ button: 'right' });
+    await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.keys.Game.harpoon.charge.perfect, null, { polling: 'raf' });
+    await page.mouse.up({ button: 'right' });
+    await expect.poll(async () => (await shots()).length).toBe(2);
+    const perfect = (await shots())[1]; expect(perfect.perfect).toBe(true); expect(perfect.power).toBe(1);
+    await page.screenshot({ path: 'art/qa/harpoon-perfect.png' });
+    await expect.poll(ready, { timeout: 6000 }).toBe(true);
+    expect(errors).toEqual([]);
 });
 
 test('first molt, pressure gate, second molt, physical Dash duct and chapel key', async ({ page }) => {
