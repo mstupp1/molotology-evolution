@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 
 export interface InputFrame {
-    x: number; y: number; jump: boolean; jumpHeld: boolean; attack: boolean; dash: boolean;
+    x: number; y: number; jump: boolean; jumpHeld: boolean; drop: boolean; attack: boolean; dash: boolean;
     interact: boolean; aim: boolean; release: boolean; aimX: number; aimY: number; map: boolean; pause: boolean;
 }
 export class Controls {
@@ -53,6 +53,7 @@ export class Controls {
         const frame: InputFrame = {
             x: Phaser.Math.Clamp(x, -1, 1), y: Phaser.Math.Clamp(y, -1, 1),
             jump: pressed('SPACE') || edge(0), jumpHeld: down('SPACE') || held(0),
+            drop: pressed('S') || pressed('DOWN') || edge(13),
             attack: pressed('J') || pointer.leftButtonDown() && !this.previous.has(99) || edge(2),
             dash: pressed('SHIFT') || edge(1), interact: pressed('E') || edge(3),
             aim, release: !aim && this.wasAiming, aimX: this.lastAim.x, aimY: this.lastAim.y,

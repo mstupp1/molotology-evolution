@@ -29,8 +29,10 @@ npm run preview
 | Move / Dash direction | WASD or arrows | Left stick or D-pad |
 | Jump / mantle | Space; hold for a higher jump | A |
 | Drop from ledge | Down | Left stick down |
+| Crab: cling / climb | Press toward wall, then W / S | Press toward wall, then left stick up / down |
+| Crab: ceiling scuttle / drop | A / D; Space or Down to drop | Left stick; A or D-pad down to drop |
 | Melee combo | J or left click; tap again to chain | X |
-| Dodge; directional Dash after second molt | Shift | B |
+| Dodge; enhanced directional Dash after first molt | Shift | B |
 | Aim / throw Harpoon | Hold right mouse; release to throw | Right stick + hold RT; release RT to throw |
 | Keyboard-only Harpoon | Hold K + direction, then release K | — |
 | Interact / refill / enter door | E | Y |
@@ -42,14 +44,14 @@ The HUD changes its hints when a controller connects. Gameplay and oxygen pause 
 
 ## Chapter I: The ship that would not die
 
-There are **twelve main chambers**, two hidden former-diver miniboss chambers, four ordinary enemy species, and the Angler boss. Main progression:
+There are **fourteen main chambers**, two hidden former-diver miniboss chambers, and all seven enemy species. Handcrabs and Hermits also appear on the main route. Main progression:
 
 1. Broken Hull → Air Bell → Cargo Hold → Flooded Armory: recover the Harpoon.
 2. Return to the Air Bell. Aim upward at the golden ring beside the high platform, release the Harpoon, then enter the Rigging Shaft.
-3. Reach the Infirmary and accept the first molt. The Breach grants pressure tolerance.
-4. Descend through the Pressure Works to the Molting Chamber. The second molt grants directional Dash.
+3. Reach the Infirmary and accept the first molt. The Breach replaces the knife with a wider claw sweep, grants enhanced directional Dash, and withstands high pressure.
+4. Break the calcified eastern bulkhead in the Pressure Works with two claw swings. In the Molting Chamber, accept the final molt: the Carapace is fully crab, immune to volcanic heat and able to scuttle along walls and ceilings.
 5. Dash through the low Ballast Duct. Recover the chapel key in the Officer's Quarters.
-6. Enter the Drowned Chapel, use the final oxygen station, and confront the Angler in the eastern hold.
+6. Enter the Drowned Chapel, then cross the Black Smoker's volcanic vents. Climb the Caldera Vault, scuttle left beneath its overhang, keep holding Up around the outer corner to reach the roof, and cross the vault to confront the Angler.
 
 Four **Vital Pearls** are hidden on high ledges in the Cargo Hold, Rigging Shaft, Officer’s Quarters and Drowned Chapel (reach the last one by grappling from the chapel's ring). Each permanently raises maximum vitality by 20.
 
@@ -71,7 +73,7 @@ npm run test:browser
 
 On macOS the configuration uses an installed Google Chrome when available. Elsewhere it uses Playwright's Chromium. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to override the executable. These tests start a local Vite server unless one is already running.
 
-The browser suite checks real keyboard actions, camera rendering, map pausing, checkpoint/Continue/death, the mandatory grapple, both molts, the physical Dash passage, enemy rooms, miniboss/boss defeat, victory exploration, and **simulated standard gamepad** inputs. Fixtures position the player to isolate encounters; these checks do not substitute for a timed human balance playthrough or a physical-controller test. The development-only `window.__MOLOTOLOGY__` handle supports fixtures and is absent from the production build. Screenshots are saved under `art/qa/`.
+The browser suite checks real keyboard actions, six-frame movement and attacks, ledge catch/hang/mantle, persistent claw barriers, first-molt Dash, heat immunity, wall-to-ceiling-to-rooftop traversal, ceiling drops, swimming through platforms, each species' attack sequence, checkpoint/Continue/death, the mandatory grapple, both molts, the physical Dash passage, miniboss/boss defeat, and **simulated standard gamepad** inputs. Fixtures position the player to isolate encounters; these checks do not substitute for a timed human balance playthrough or a physical-controller test. The development-only `window.__MOLOTOLOGY__` handle is absent from the production build. Screenshots are saved under `art/qa/`. Set `PLAYWRIGHT_BASE_URL` to test an existing server on another port.
 
 ## Code and art
 
@@ -85,4 +87,4 @@ The browser suite checks real keyboard actions, camera rendering, map pausing, c
 - v2 sound cues (jump, land, dash, pickup, door, kill, hurt, roar) are synthesized by `node scripts/synth_sfx.mjs`.
 - Original reference-guided pixel art and generated audio are shipped under `public/assets/`; source art, prompts, extraction details and limitations are documented in [art/README.md](art/README.md).
 
-The shipped prototype uses three forms (Diver, Breach, Infestation) and compact pose-based animation: two walking frames plus dedicated idle, jump, attack and aim poses, with additional motion for dodge, Dash, hurt, death and survival overlays. Later evolution forms and reference biomes are outside this chapter. The 20–30 minute playtime is a design target, not a measured completion time.
+The demo uses three forms: Diver, Breach, and full-crab Carapace. Each form has 30 frames, including six-frame walking and melee sequences plus ledge, mantle, jump, aim, throw and dash poses. Every enemy has six locomotion and six attack-phase frames. Swimmers pass through platforms; grounded creatures collide with terrain. The harpoon uses an Arcade projectile with inherited momentum, mild gravity, swept hit detection, full-body pull clearance, cancellable reeling, and an animated cable. New abyss and iron-rib images add independent parallax layers. Generation prompts, sources, frame manifests and rebuild instructions are in [art/README.md](art/README.md). The 20–30 minute playtime remains a design target, not a measured completion time.

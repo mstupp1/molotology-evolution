@@ -2,6 +2,7 @@ import * as Phaser from 'phaser';
 import { COLORS, EVOLUTION_NAMES, GameEvent, SceneKey, type GameSnapshot, type Notice, type UiCommand } from '../constants';
 import { ROOMS, ROOM_IDS, meetsRequirement, type RoomId } from '../world';
 import { makeTextures, serifStyle, textStyle } from '../rendering';
+import { PLAYER_TEXTURES } from '../animation';
 
 export class Hud extends Phaser.Scene {
     private snapshot?: GameSnapshot;
@@ -131,9 +132,9 @@ export class Hud extends Phaser.Scene {
         const tutorial = data.room === 'hull' && !data.harpoon;
         this.footer.setVisible(tutorial && !data.paused).setText(data.gamepad ? 'L STICK  MOVE    A  JUMP    X  SLASH    B  DODGE / DASH    Y  INTERACT    RT  AIM / RELEASE' : 'A D  MOVE    SPACE  JUMP    J / CLICK  SLASH    SHIFT  DODGE / DASH    E  INTERACT    M  MAP');
         this.footerMap.setText(data.gamepad ? '[VIEW] MAP   [MENU] PAUSE' : '[M] MAP   [ESC] PAUSE');
-        this.stage.setText(EVOLUTION_NAMES[data.evolution]); this.portrait.setFrame(data.evolution * 6);
-        this.equipment.setText(`${data.evolution === 2 ? 'DIRECTIONAL DASH' : 'DODGE'}  ·  ${data.harpoon ? 'CUTLASS + HARPOON' : 'CUTLASS'}${data.key ? '  ·  CHAPEL KEY' : ''}`);
-        this.environment.setText(data.environment === 'air' ? 'AIR POCKET · O₂ REPLENISHING' : data.environment === 'pressure' ? 'HIGH PRESSURE · SHELL ADAPTED' : 'SUBMERGED · 2,840 M').setColor(data.environment === 'air' ? '#bfe9cf' : data.environment === 'pressure' ? '#c8a8ff' : '#94bab8');
+        this.stage.setText(EVOLUTION_NAMES[data.evolution]); this.portrait.setTexture(PLAYER_TEXTURES[data.evolution], 24);
+        this.equipment.setText(`${data.evolution >= 1 ? 'CLAW · DASH' : 'KNIFE · DODGE'}${data.evolution === 2 ? ' · SCUTTLE' : ''}${data.harpoon ? ' · HARPOON' : ''}${data.key ? ' · KEY' : ''}`);
+        this.environment.setText(data.environment === 'heat' ? data.evolution === 2 ? 'EXTREME HEAT · CARAPACE ADAPTED' : 'EXTREME HEAT · SHELL REQUIRED' : data.environment === 'air' ? 'AIR POCKET · O₂ REPLENISHING' : data.environment === 'pressure' ? 'HIGH PRESSURE · SHELL ADAPTED' : 'SUBMERGED · 2,840 M').setColor(data.environment === 'heat' ? '#ffba80' : data.environment === 'air' ? '#bfe9cf' : data.environment === 'pressure' ? '#c8a8ff' : '#94bab8');
         this.objectiveLabel.setText(`◆  ${data.objective}`);
         this.prompt.setText(data.prompt).setVisible(!!data.prompt && !data.paused);
         this.drawBars();
@@ -228,14 +229,14 @@ export class Hud extends Phaser.Scene {
         add(this.add.rectangle(640, 360, 1280, 720, COLORS.ink, 1));
         add(this.add.text(50, 36, 'M O L O T O L O G Y  /  F I E L D  S U R V E Y', textStyle(10, '#91aca9')));
         add(this.add.text(50, 77, mode === 'map' ? 'The Wreck' : 'A moment above the dark.', serifStyle(46)));
-        add(this.add.text(52, 142, mode === 'map' ? `${this.snapshot?.explored.length ?? 0} / 14 CHAMBERS EXPLORED     ·     ${this.snapshot?.roomName ?? ''}` : 'PAUSED · YOUR OXYGEN RESERVE IS SAFE', textStyle(12, '#93b8b5')));
+        add(this.add.text(52, 142, mode === 'map' ? `${this.snapshot?.explored.length ?? 0} / ${ROOM_IDS.length} CHAMBERS EXPLORED     ·     ${this.snapshot?.roomName ?? ''}` : 'PAUSED · YOUR OXYGEN RESERVE IS SAFE', textStyle(12, '#93b8b5')));
         const close = add(this.add.text(1180, 45, '[ESC] CLOSE', textStyle(11, '#d5bd8b')).setOrigin(1, 0).setInteractive({ useHandCursor: true })); close.on('pointerdown', () => this.emit({ type: 'resume' }));
         if (mode === 'map') {
             const map = add(this.add.graphics()); this.drawMap(map, 215, 220, 145, 85, true, this.overlay);
             add(this.add.text(52, 623, '● YOU     ○ OXYGEN STATION     ■ SEALED PASSAGE     ─ CONNECTION', textStyle(11, '#92b4b0')));
             add(this.add.text(52, 658, this.snapshot?.objective ?? '', serifStyle(18, '#d6c5a3')));
         } else {
-            add(this.add.image(960, 395, 'diver', (this.snapshot?.evolution ?? 0) * 6).setDisplaySize(350, 350).setAlpha(0.35));
+            add(this.add.image(960, 395, PLAYER_TEXTURES[this.snapshot?.evolution ?? 0], 24).setDisplaySize(350, 350).setAlpha(0.35));
             const buttons: [string, () => void][] = [
                 ['Resume descent', () => this.emit({ type: 'resume' })],
                 ['Survey the wreck', () => this.openOverlay('map')],
@@ -248,7 +249,7 @@ export class Hud extends Phaser.Scene {
                 button.on('pointerover', () => this.selectMenu(i)).on('pointerdown', action);
             });
             this.selectMenu(0);
-            add(this.add.text(68, 500, 'KEYBOARD & MOUSE\nA / D or arrows move · Space jump / mantle · Shift dodge / Dash\nJ or left click slash · Right mouse hold aim / release Harpoon\nE interact · M / Tab map · Escape pause · K + direction keyboard aim', textStyle(13, '#839f9f')).setLineSpacing(9));
+            add(this.add.text(68, 490, 'KEYBOARD & MOUSE\nA / D move · Space jump / mantle · Shift dodge / Dash\nJ / click knife or claw · Right mouse aim / release Harpoon\nE interact · M / Tab map · Escape pause · K + direction aim\nCRAB: press toward walls · W / S climb · A / D ceiling scuttle\nSpace / Down drop from ceilings · Space releases a grapple', textStyle(12, '#839f9f')).setLineSpacing(7));
             add(this.add.text(68, 630, 'GAMEPAD   Left stick move · A jump · X slash · B dodge / Dash\nRight stick aim + RT hold / release Harpoon · Y interact · View map · Menu resume', textStyle(12, '#839f9f')).setLineSpacing(8));
         }
     }

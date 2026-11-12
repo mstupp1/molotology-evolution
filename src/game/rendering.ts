@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { COLORS, GAME_WIDTH, GAME_HEIGHT } from './constants';
-import { meetsRequirement, type Room, type Door, type Pickup, type RoomId } from './world';
+import { meetsRequirement, type Room, type Door, type Pickup, type RoomId, type Obstacle, type Rect } from './world';
 import type { Progress } from './model';
 import type { Player } from './systems/Player';
 
@@ -24,6 +24,8 @@ const THEMES: Record<RoomId, RoomTheme> = {
     ballast: { tint: 0x8eaeb6, fog: 0x0c2630, accent: 0x9fd0d8, darkness: 0.56, rays: 1, rayColor: 0x9fd0d8, flip: false, coral: [0xc0e0ff], chains: 4 },
     quarters: { tint: 0xdac5a2, fog: 0x3a2a14, accent: 0xffd08a, darkness: 0.38, rays: 3, rayColor: 0xffe2b0, flip: true, coral: [0xffe0b8], chains: 1 },
     chapel: { tint: 0xb2a2e2, fog: 0x241a46, accent: 0xc8b0ff, darkness: 0.54, rays: 6, rayColor: 0xd6c4ff, flip: false, coral: [0xd8c8ff, 0xffffff], chains: 2 },
+    furnace: { tint: 0xe3a483, fog: 0x3c171b, accent: 0xff914b, darkness: 0.38, rays: 2, rayColor: 0xffbc80, flip: false, coral: [0xff9b76], chains: 3, warning: true },
+    caldera: { tint: 0xd6a68d, fog: 0x351c26, accent: 0xffaa55, darkness: 0.4, rays: 3, rayColor: 0xff9b60, flip: true, coral: [0xffc090], chains: 2, warning: true },
     angler: { tint: 0x7a92bc, fog: 0x060c22, accent: 0xb5a4eb, darkness: 0.6, rays: 0, rayColor: 0x8090c0, flip: true, coral: [0x9aa8ff], chains: 3 },
     handcrab: { tint: 0xc4929c, fog: 0x2e1018, accent: 0xff8f7a, darkness: 0.58, rays: 1, rayColor: 0xffb0a0, flip: false, coral: [0xffa0a0], chains: 3 },
     hermit: { tint: 0xb99aa6, fog: 0x2a1424, accent: 0xffa88a, darkness: 0.58, rays: 1, rayColor: 0xffc0a8, flip: true, coral: [0xffb8a0], chains: 3 }
@@ -106,6 +108,8 @@ export class RoomView {
     doors: { data: Door; image: Phaser.GameObjects.Image; label?: Phaser.GameObjects.Text }[] = [];
     pickups: RenderedPickup[] = [];
     platforms: Phaser.Physics.Arcade.StaticGroup;
+    geometry: Rect[];
+    breakables: { data: Obstacle; sprite: Phaser.Physics.Arcade.Image; label: Phaser.GameObjects.Text; hits: number }[] = [];
     readonly theme: RoomTheme;
     private snow: { x: number; y: number; speed: number; size: number }[] = [];
     private snowGraphics: Phaser.GameObjects.Graphics;
@@ -119,9 +123,11 @@ export class RoomView {
         const theme = this.theme = THEMES[room.id];
         const rnd = new Phaser.Math.RandomDataGenerator([room.id]);
         scene.cameras.main.setBackgroundColor('#07131d');
-        // Far backdrop: slow parallax, tinted and mirrored per chamber.
+        // Distinct image layers, from distant seabed to near iron ribs.
         const bgW = GAME_WIDTH + (room.width - GAME_WIDTH) * 0.12 + 40, bgH = bgW * 941 / 1672;
-        scene.add.image(-20, -20, 'wreck').setOrigin(0).setDisplaySize(bgW, Math.max(bgH, GAME_HEIGHT + 80)).setScrollFactor(0.12).setDepth(-20).setTint(theme.tint).setFlipX(theme.flip);
+        scene.add.image(-20, -20, 'abyss-far').setOrigin(0).setDisplaySize(GAME_WIDTH + room.width * 0.05, GAME_HEIGHT + 160).setScrollFactor(0.04, 0.06).setDepth(-24).setTint(room.volcanic ? 0xd3938e : theme.tint);
+        scene.add.image(-20, -20, 'wreck').setOrigin(0).setDisplaySize(bgW, Math.max(bgH, GAME_HEIGHT + 80)).setScrollFactor(0.12).setDepth(-22).setTint(theme.tint).setFlipX(theme.flip).setAlpha(0.38);
+        scene.add.tileSprite(0, -30, GAME_WIDTH + room.width * 0.3, 1100, 'wreck-ribs').setOrigin(0).setScrollFactor(0.28, 0.22).setDepth(-20).setTint(theme.tint).setAlpha(0.68).setTileScale(0.9);
         scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, theme.fog, 0.22).setScrollFactor(0).setDepth(-19);
         // Light shafts from the distant surface drift slowly.
         for (let i = 0; i < theme.rays; i++) {
@@ -150,8 +156,9 @@ export class RoomView {
             scene.tweens.add({ targets: chain, angle: { from: -1.5, to: 1.5 }, duration: rnd.between(3000, 5000), yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         }
         this.platforms = scene.physics.add.staticGroup();
+        this.geometry = [...room.platforms];
         for (const p of room.platforms) {
-            const collision = scene.add.rectangle(p.x + p.w / 2, p.y + p.h / 2, p.w, p.h, 0x0c1b26).setDepth(3);
+            const collision = scene.add.rectangle(p.x + p.w / 2, p.y + p.h / 2, p.w, p.h).setVisible(false);
             scene.physics.add.existing(collision, true); this.platforms.add(collision);
             const solid = p.h >= 100;
             // Iron plating fills the body of floors and bulkheads.
@@ -182,10 +189,26 @@ export class RoomView {
                 }
             }
         }
+        for (const data of room.obstacles ?? []) {
+            if (progress.opened.includes(`break:${data.id}`)) continue;
+            const sprite = scene.physics.add.staticImage(data.x + data.w / 2, data.y + data.h / 2, 'coral-barrier').setDisplaySize(data.w, data.h).setDepth(11).refreshBody();
+            this.platforms.add(sprite); this.geometry.push(data);
+            const label = scene.add.text(data.x + data.w / 2, data.y - 24, 'CALCIFIED · CLAW REQUIRED', textStyle(10, '#e3b2a1')).setOrigin(0.5).setDepth(12);
+            this.breakables.push({ data, sprite, label, hits: 2 });
+        }
+        for (const h of room.heat ?? []) {
+            scene.add.tileSprite(h.x + h.w / 2, h.y + h.h, h.w, 65, 'lava').setOrigin(0.5, 1).setDepth(9).setTileScale(0.5);
+            for (let x = h.x + 80; x < h.x + h.w; x += 260) {
+                scene.add.image(x, 850, 'volcanic-vent').setOrigin(0.5, 1).setDisplaySize(110, 160).setDepth(8);
+                const glow = scene.add.image(x, 765, 'glow').setTint(0xff6b2f).setDisplaySize(360, 300).setAlpha(0.7).setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
+                scene.tweens.add({ targets: glow, alpha: 0.35, duration: 700 + x % 300, yoyo: true, repeat: -1 });
+                scene.add.particles(x, 700, 'spark', { lifespan: 1600, speedY: { min: -100, max: -45 }, speedX: { min: -25, max: 25 }, scale: { start: 0.3, end: 0 }, alpha: { start: 0.65, end: 0 }, tint: [0xff6a30, 0xffca7e], frequency: 160 }).setDepth(17);
+            }
+            scene.add.text(h.x + h.w / 2, h.y - 24, 'EXTREME HEAT · CARAPACE ADAPTED', textStyle(11, '#ffc28a')).setOrigin(0.5).setDepth(11);
+        }
         for (const a of room.anchors) {
             decor.lineStyle(2, 0x778f85, 0.65).lineBetween(a.x, 0, a.x, a.y - 14);
-            scene.add.circle(a.x, a.y, 14, 0x102731).setStrokeStyle(3, COLORS.gold).setDepth(12);
-            scene.add.circle(a.x, a.y, 5, COLORS.teal).setDepth(13);
+            scene.add.image(a.x, a.y, 'anchor-ring').setDisplaySize(42, 50).setDepth(12);
             const glow = scene.add.image(a.x, a.y, 'glow').setDisplaySize(120, 120).setAlpha(0.4).setDepth(11);
             scene.tweens.add({ targets: glow, alpha: 0.75, scale: glow.scale * 1.2, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         }
@@ -224,7 +247,7 @@ export class RoomView {
             const label = scene.add.text(p.x, p.y + 43, p.kind === 'harpoon' ? 'SALVAGE HARPOON' : p.kind === 'key' ? 'CHAPEL KEY' : p.kind === 'health' ? 'VITAL PEARL' : 'THE MOLT', textStyle(11, '#ddc3ad')).setOrigin(0.5).setDepth(12).setShadow(0, 1, '#000000', 4);
             this.pickups.push({ data: p, sprite, halo, label });
         }
-        this.record = scene.add.image(1600, 852, 'prop-6').setOrigin(0.5, 1).setDisplaySize(46, 58).setDepth(11).setTint(0xf0e0c0);
+        this.record = scene.add.image(1600, 852, 'field-record').setOrigin(0.5, 1).setDisplaySize(52, 40).setDepth(11);
         const recordGlow = scene.add.image(1600, 826, 'glow').setDisplaySize(110, 110).setTint(COLORS.gold).setAlpha(0.2).setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
         scene.tweens.add({ targets: recordGlow, alpha: 0.42, duration: 1300, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         const marker = scene.add.text(1600, 770, '✦', serifStyle(18, '#f0d49f')).setOrigin(0.5).setDepth(11).setShadow(0, 0, '#e1bb7a', 8);
@@ -249,6 +272,12 @@ export class RoomView {
         for (let x = rnd.between(300, 700); x < room.width + 400; x += rnd.between(900, 1400)) {
             scene.add.image(x, -20, 'prop-7').setOrigin(0.5, 0).setScrollFactor(1.25, 1).setDisplaySize(rnd.between(60, 90), rnd.between(200, 330)).setTint(0x03080c).setAlpha(0.92).setDepth(29);
         }
+    }
+    breakObstacle(id: string): void {
+        const i = this.breakables.findIndex(b => b.data.id === id); if (i < 0) return;
+        const b = this.breakables[i], g = this.geometry.indexOf(b.data);
+        if (g >= 0) this.geometry.splice(g, 1);
+        this.platforms.remove(b.sprite, true, true); b.label.destroy(); this.breakables.splice(i, 1);
     }
     update(dt: number, p: Player, aimX: number, aimY: number, aiming: boolean, lights: { x: number; y: number; r?: number }[] = []): void {
         this.tick++; const camera = this.scene.cameras.main;

@@ -1,16 +1,17 @@
 import type { Evolution } from './constants';
-export type RoomId = 'hull' | 'bell' | 'cargo' | 'armory' | 'rigging' | 'infirmary' | 'pressure' | 'molt' | 'ballast' | 'quarters' | 'chapel' | 'angler' | 'handcrab' | 'hermit';
+export type RoomId = 'hull' | 'bell' | 'cargo' | 'armory' | 'rigging' | 'infirmary' | 'pressure' | 'molt' | 'ballast' | 'quarters' | 'chapel' | 'furnace' | 'caldera' | 'angler' | 'handcrab' | 'hermit';
 export type EnemyKind = 'urchin' | 'jellyfish' | 'octopus' | 'shark' | 'handcrab' | 'hermit' | 'angler';
-export type Requirement = 'harpoon' | 'pressure' | 'dash' | 'key';
+export type Requirement = 'harpoon' | 'pressure' | 'dash' | 'heat' | 'key';
 export type PickupKind = 'harpoon' | 'breach' | 'infestation' | 'key' | 'health';
 export interface Rect { x: number; y: number; w: number; h: number }
+export interface Obstacle extends Rect { id: string }
 export interface Door { id: string; x: number; y: number; to: RoomId; label: string; requires?: Requirement; hidden?: boolean; shortcut?: boolean }
 export interface Pickup { id: string; kind: PickupKind; x: number; y: number }
 export interface EnemySpawn { id: string; kind: EnemyKind; x: number; y: number; range?: number }
 export interface Room {
     id: RoomId; name: string; subtitle: string; map: [number, number]; width: number; height: number;
     color: number; platforms: Rect[]; doors: Door[]; anchors: { x: number; y: number }[];
-    air: Rect[]; station?: { x: number; y: number }; pickups: Pickup[]; enemies: EnemySpawn[]; pressure?: boolean; log: string;
+    air: Rect[]; station?: { x: number; y: number }; pickups: Pickup[]; enemies: EnemySpawn[]; pressure?: boolean; volcanic?: boolean; heat?: Rect[]; obstacles?: Obstacle[]; log: string;
 }
 const WIDTH = 3200;
 const platform = (x: number, y: number, w: number, h = 28): Rect => ({ x, y, w, h });
@@ -35,6 +36,7 @@ export const ROOMS: Record<RoomId, Room> = {
     }),
     cargo: room('cargo', 'The Cargo Hold', [2, 2], {
         subtitle: '03 / SOMETHING IN THE CRATES',
+        obstacles: [{ id: 'cargo:coral', x: 1210, y: 500, w: 60, h: 90 }],
         doors: [door('cargo', 'bell', 100, 'AIR BELL'), door('cargo', 'armory', 3040, 'ARMORY'), door('cargo', 'handcrab', 1320, 'SCRATCHED BULKHEAD', { hidden: true, y: 578 }), door('cargo', 'ballast', 2450, 'BALLAST SHORTCUT', { requires: 'dash', shortcut: true })],
         pickups: [{ id: 'pearl:cargo', kind: 'health', x: 2640, y: 575 }],
         enemies: [mob('cargo', 'urchin', 780), mob('cargo', 'jellyfish', 1650, 660), mob('cargo', 'urchin', 2100), mob('cargo', 'jellyfish', 2700, 540)],
@@ -50,7 +52,7 @@ export const ROOMS: Record<RoomId, Room> = {
         platforms: [platform(0, 850, WIDTH, 174), platform(510, 520, 370), platform(1230, 410, 400), platform(2140, 530, 400)],
         doors: [door('rigging', 'bell', 100, 'AIR BELL', { shortcut: true }), door('rigging', 'infirmary', 3040, 'INFIRMARY')],
         pickups: [{ id: 'pearl:rigging', kind: 'health', x: 1560, y: 365 }],
-        enemies: [mob('rigging', 'jellyfish', 1150, 600), mob('rigging', 'shark', 2300, 710)],
+        enemies: [mob('rigging', 'jellyfish', 1150, 600), mob('rigging', 'shark', 2300, 710), mob('rigging', 'handcrab', 2820)],
         log: 'The cables sway against the current. They are being pulled from the other end.'
     }),
     infirmary: room('infirmary', 'The Infirmary', [2, 1], {
@@ -61,15 +63,16 @@ export const ROOMS: Record<RoomId, Room> = {
     }),
     pressure: room('pressure', 'The Pressure Works', [3, 1], {
         subtitle: '07 / BELOW HUMAN TOLERANCE', pressure: true, color: 0x322747,
+        obstacles: [{ id: 'pressure:coral', x: 2820, y: 120, w: 74, h: 730 }],
         doors: [door('pressure', 'infirmary', 100, 'INFIRMARY'), door('pressure', 'molt', 3040, 'MOLTING CHAMBER'), door('pressure', 'hermit', 1350, 'HOLLOW MACHINERY', { y: 578, hidden: true })], anchors: [{ x: 1320, y: 500 }],
         enemies: [mob('pressure', 'shark', 1000, 690), mob('pressure', 'octopus', 2050), mob('pressure', 'jellyfish', 2700, 600)],
-        log: 'A discarded helmet lies beneath the boiler. The glass is broken outward.'
+        log: 'The calcified bulkhead seals the eastern passage. Your knife would never cut it. Your new claw will.'
     }),
     molt: room('molt', 'The Molting Chamber', [4, 1], {
         subtitle: '08 / LEAVE SOMETHING OF YOURSELF', color: 0x3c273e, station: { x: 450, y: 850 },
         doors: [door('molt', 'pressure', 100, 'PRESSURE WORKS'), door('molt', 'ballast', 3040, 'BALLAST DUCT', { requires: 'dash' })],
         pickups: [{ id: 'infestation', kind: 'infestation', x: 2100, y: 675 }], enemies: [mob('molt', 'octopus', 1200), mob('molt', 'urchin', 2600)],
-        log: 'Your suit does not fit anymore. For one terrible moment, removing it feels like coming home.'
+        log: 'The suit falls away. Six legs find the iron. Heat no longer hurts; walls are only another floor.'
     }),
     ballast: room('ballast', 'The Ballast Duct', [4, 2], {
         subtitle: '09 / THROUGH THE RIBS', color: 0x253640,
@@ -88,11 +91,26 @@ export const ROOMS: Record<RoomId, Room> = {
         subtitle: '11 / A LIGHT THAT HUNGERS', color: 0x2d2843, station: { x: 2620, y: 850 },
         platforms: [platform(0, 850, WIDTH, 174), platform(580, 690, 240), platform(1080, 470, 280), platform(1200, 610, 300), platform(1900, 710, 280), platform(2500, 620, 280)],
         pickups: [{ id: 'pearl:chapel', kind: 'health', x: 1310, y: 425 }],
-        doors: [door('chapel', 'bell', 100, 'AIR BELL', { shortcut: true }), door('chapel', 'quarters', 1500, 'OFFICER’S QUARTERS'), door('chapel', 'angler', 3040, 'ANGLER HOLD')], anchors: [{ x: 1200, y: 410 }],
+        doors: [door('chapel', 'bell', 100, 'AIR BELL', { shortcut: true }), door('chapel', 'quarters', 1500, 'OFFICER’S QUARTERS'), door('chapel', 'furnace', 3040, 'BLACK SMOKER', { requires: 'heat' })], anchors: [{ x: 1200, y: 410 }],
         enemies: [mob('chapel', 'jellyfish', 750, 660), mob('chapel', 'octopus', 1900)], log: 'The congregation is gone. The lights still move between the pews.'
     }),
-    angler: room('angler', 'The Angler Hold', [3, 3], {
-        subtitle: '12 / THE LAST LIGHT', color: 0x172137, doors: [door('angler', 'chapel', 100, 'DROWNED CHAPEL')],
+    furnace: room('furnace', 'The Black Smoker', [3, 3], {
+        subtitle: '12 / WHERE THE SEABED BURNS', volcanic: true, color: 0x4a211d, station: { x: 330, y: 850 },
+        doors: [door('furnace', 'chapel', 100, 'DROWNED CHAPEL'), door('furnace', 'caldera', 3040, 'CALDERA VAULT', { requires: 'heat' })],
+        heat: [{ x: 700, y: 730, w: 580, h: 120 }, { x: 1740, y: 715, w: 780, h: 135 }],
+        enemies: [mob('furnace', 'octopus', 1550), mob('furnace', 'shark', 2250, 650)],
+        log: 'The iron glows cherry red. The new shell takes the heat without pain. Keep scuttling.'
+    }),
+    caldera: room('caldera', 'The Caldera Vault', [4, 3], {
+        subtitle: '13 / A FLOOR ABOVE YOUR HEAD', volcanic: true, color: 0x44251e,
+        platforms: [platform(0, 850, WIDTH, 174), platform(1150, 500, 100, 350), platform(850, 470, 1450, 30), platform(1950, 500, 100, 350), platform(2450, 620, 350)],
+        doors: [door('caldera', 'furnace', 100, 'BLACK SMOKER'), door('caldera', 'angler', 3040, 'ANGLER HOLD')],
+        heat: [{ x: 1250, y: 730, w: 700, h: 120 }, { x: 2180, y: 755, w: 680, h: 95 }],
+        enemies: [mob('caldera', 'hermit', 2580), mob('caldera', 'jellyfish', 1680, 600)],
+        log: 'Press toward a wall to cling. W / S climb; A / D scuttle beneath iron ceilings. Space or Down drops from a ceiling. Climb over the sealed vault to reach the last light.'
+    }),
+    angler: room('angler', 'The Angler Hold', [5, 3], {
+        subtitle: '14 / THE LAST LIGHT', color: 0x172137, doors: [door('angler', 'caldera', 100, 'CALDERA VAULT')],
         enemies: [mob('angler', 'angler', 2260, 640)], anchors: [{ x: 800, y: 400 }, { x: 2400, y: 400 }],
         log: 'A lantern hangs in the darkness. Then the darkness opens its mouth.'
     }),
@@ -107,9 +125,9 @@ export const ROOMS: Record<RoomId, Room> = {
 };
 export const ROOM_IDS = Object.keys(ROOMS) as RoomId[];
 export function meetsRequirement(r: Requirement | undefined, s: { harpoon: boolean; evolution: Evolution; key: boolean }): boolean {
-    return !r || (r === 'harpoon' ? s.harpoon : r === 'pressure' ? s.evolution >= 1 : r === 'dash' ? s.evolution >= 2 : s.key);
+    return !r || (r === 'harpoon' ? s.harpoon : r === 'pressure' || r === 'dash' ? s.evolution >= 1 : r === 'heat' ? s.evolution === 2 : s.key);
 }
-export const REQUIREMENT_LABEL: Record<Requirement, string> = { harpoon: 'Harpoon required', pressure: 'First molt required · lethal pressure', dash: 'Directional Dash required', key: 'Chapel key required' };
+export const REQUIREMENT_LABEL: Record<Requirement, string> = { harpoon: 'Harpoon required', pressure: 'First molt required · lethal pressure', dash: 'First molt required · enhanced Dash', heat: 'Full crab shell required · extreme heat', key: 'Chapel key required' };
 export function inside(x: number, y: number, r: Rect): boolean { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
 export function segmentRect(ax: number, ay: number, bx: number, by: number, r: Rect): number | null {
     let lo = 0, hi = 1;
