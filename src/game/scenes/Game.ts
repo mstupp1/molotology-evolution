@@ -6,7 +6,7 @@ import { RoomView, smoothText, textStyle } from '../rendering';
 import { Controls } from '../systems/Controls';
 import { Player } from '../systems/Player';
 import { Enemy, EnemySystem, ENEMY_INFO } from '../systems/Enemies';
-import { Harpoon } from '../systems/Harpoon';
+import { Harpoon, type HarpoonEvent } from '../systems/Harpoon';
 import { abilities, meleeReach } from '../mechanics';
 
 interface StartData { progress?: Progress; room?: RoomId; from?: RoomId; survival?: Survival }
@@ -186,7 +186,7 @@ export class Game extends Phaser.Scene {
                 this.survival.health = this.survival.maxHealth; this.survival.oxygen = 120; this.burst(p.centerX, p.centerY, 0xddb6b4, 28); this.puff(p.centerX, p.centerY, 14);
                 this.soundEffect('pickup', 0.6); this.hitstop = 0.12;
                 if (pickup.data.kind === 'health') this.notice('VITAL PEARL', `Something in the shell remembers how to heal. Maximum vitality is now ${this.survival.maxHealth}.`, 5000);
-                else if (pickup.data.kind === 'harpoon') this.notice('SALVAGE HARPOON ACQUIRED', 'Hold right mouse / RT to aim. Release to throw. Golden rings are grapple anchors.\nReturn to the Air Bell and aim up at the ring beside the high ledge.', 11000);
+                else if (pickup.data.kind === 'harpoon') this.notice('SALVAGE HARPOON ACQUIRED', 'Hold right mouse / RT to charge, release to fire. Let go as the ring flashes for a PERFECT shot. Golden rings are grapple anchors.\nReturn to the Air Bell and aim up at the ring beside the high ledge.', 11000);
                 else if (pickup.data.kind === 'key') this.notice('CHAPEL KEY ACQUIRED', 'A key, warm against your changing skin. The chapel waits beyond the eastern bulkhead.');
                 else { this.soundEffect('molt', 0.7); this.cameras.main.flash(500, 100, 55, 75); this.notice(pickup.data.kind === 'breach' ? 'THE FIRST MOLT · THE BREACH' : 'THE FINAL MOLT · THE CARAPACE', pickup.data.kind === 'breach' ? 'Your claw replaces the knife: a wider sweep that breaks calcified barriers.\nShift / B grants enhanced directional Dash. Your shell withstands high pressure.' : 'Fully crab. Extreme heat cannot harm your shell. Press toward walls to cling; W / S climb.\nA / D scuttle upside down beneath ceilings. Space or Down drops. Cross the volcanic vents.', 14000); }
                 this.save();
@@ -243,13 +243,14 @@ export class Game extends Phaser.Scene {
             if (this.combo.press()) this.soundEffect('slash', 0.4);
         }
         if (this.combo.update(dt)) this.soundEffect('slash', 0.45);
+        this.harpoon.tickCharge(dt, input.aim && this.progress.harpoon && !this.combo.active);
         if (this.progress.harpoon && input.release && !this.combo.active && p.dashTime === 0 && p.hurtTime === 0) {
-            if (this.harpoon.throw(input.aimX, input.aimY)) this.soundEffect('harpoon');
+            if (this.harpoon.throw(input.aimX, input.aimY)) this.harpoonLaunched();
         }
-        this.harpoon.update(dt, this.room, this.enemies, this.view.geometry);
+        for (const event of this.harpoon.update(dt, this.room, this.enemies, this.view.geometry)) this.harpoonEvent(event);
         if (this.combo.active) p.state = 'MeleeAttack';
         else if (input.aim && this.progress.harpoon && this.harpoon.mode === 'ready') { p.state = 'HarpoonAim'; p.facing = input.aimX >= 0 ? 1 : -1; }
-        else if (this.harpoon.mode === 'out' || this.harpoon.mode === 'return') p.state = 'HarpoonThrow';
+        else if (this.harpoon.mode === 'out' || this.harpoon.mode === 'stuck' || this.harpoon.mode === 'return') p.state = 'HarpoonThrow';
         this.combatGraphics.clear();
         this.clawSweep.setVisible(false);
         if (this.combo.damaging) {
@@ -307,9 +308,33 @@ export class Game extends Phaser.Scene {
         if (this.survival.invulnerable > 0 && p.dashTime === 0) p.setAlpha(Math.sin(this.time.now / 40) > 0 ? 0.4 : 1); else p.setAlpha(1);
         p.animate(this.survival.oxygen < 30, air && this.survival.oxygen < 120 || this.refill, this.combo.active ? this.combo.elapsed / this.combo.durations[this.combo.index] : undefined);
         this.view.update(dt, p, input.aimX, input.aimY, input.aim, this.enemies.lights(), this.survival.oxygen < 30 ? 1 - this.survival.oxygen / 30 : 0);
-        this.harpoon.draw(input.aim && this.progress.harpoon, input.aimX, input.aimY, this.room, this.progress.harpoon);
+        this.harpoon.draw(input.aim && this.progress.harpoon, input.aimX, input.aimY, this.room, this.progress.harpoon, this.view.geometry);
         if (this.survival.health <= 0 || p.y > this.room.height + 50) this.die();
         this.snapshotTimer -= dt; if (this.snapshotTimer <= 0) { this.snapshotTimer = 0.08; this.emitSnapshot(); }
+    }
+    private harpoonLaunched(): void {
+        const shot = this.harpoon.shot, p = this.player;
+        this.soundEffect('harpoon', 0.3 + shot.power * 0.25, (shot.power - 1) * 500 + (shot.perfect ? 250 : 0));
+        this.puff(p.centerX + p.facing * 40, p.centerY - 12, 2 + Math.round(shot.power * 3), 10);
+        if (!shot.perfect) return;
+        // Perfect release: a bright snap at the muzzle, a chime and a short shake.
+        this.soundEffect('pickup', 0.35, 400);
+        this.burst(p.centerX + p.facing * 30, p.centerY - 12, 0xbff9ff, 10);
+        this.floatText(p.centerX, p.centerY - 84, 'PERFECT', '#bff9ff', 24);
+        this.cameras.main.shake(90, 0.004);
+    }
+    private harpoonEvent(event: HarpoonEvent): void {
+        if (event.type === 'enemy') {
+            this.burst(event.x, event.y, event.perfect ? 0xbff9ff : 0xf4c2a0, event.perfect ? 16 : 9);
+            this.floatText(event.x, event.y - 40, `${event.damage}`, event.perfect ? '#bff9ff' : '#f4ead8', event.perfect ? 24 : 17);
+            this.soundEffect('hit', event.perfect ? 0.6 : 0.45, event.perfect ? -200 : 0);
+            this.hitstop = Math.max(this.hitstop, event.perfect ? 0.11 : 0.06); this.cameras.main.shake(event.perfect ? 140 : 80, event.perfect ? 0.007 : 0.003);
+        } else if (event.type === 'wall') {
+            this.burst(event.x, event.y, 0xd9c7a4, 5); this.puff(event.x, event.y, 3, 12); this.soundEffect('hit', 0.18, 500);
+        } else if (event.type === 'latch') {
+            this.burst(event.x, event.y, 0x9ef8db, 7); this.soundEffect('land', 0.4, 300); this.cameras.main.shake(60, 0.002);
+        } else if (event.type === 'snap') this.soundEffect('land', 0.3, 600);
+        else this.soundEffect('land', 0.12, 800);
     }
     private die(): void {
         this.dead = true; this.player.state = 'Death'; this.player.setVelocity(0, 0).setAcceleration(0, 0); this.player.body.moves = false;
