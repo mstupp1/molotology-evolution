@@ -1,5 +1,7 @@
 # Molotology Evolution
 
+**Play it in the browser: https://mstupp1.github.io/molotology-evolution/**
+
 A playable desktop browser Metroidvania set inside an abyssal shipwreck. Built with Phaser **4.2**, TypeScript and Vite; no backend or runtime image-generation service is required.
 
 ## Run
@@ -21,6 +23,8 @@ npm run preview
 ```
 
 `dist/` is a self-contained static build. Vite's relative base supports hosting beneath a subdirectory.
+
+Every push to `main` runs the tests, builds, and deploys `dist/` to GitHub Pages through `.github/workflows/deploy-pages.yml`. You can also rerun it by hand from the Actions tab.
 
 ## Controls
 
