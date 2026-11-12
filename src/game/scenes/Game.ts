@@ -2,7 +2,7 @@ import * as Phaser from 'phaser';
 import { GameEvent, SceneKey, type GameSnapshot, type Notice, type UiCommand } from '../constants';
 import { browserSaveStore, collect, Combo, maxHealth, newProgress, objective, Survival, type Progress } from '../model';
 import { inside, meetsRequirement, REQUIREMENT_LABEL, ROOMS, type Door, type Room, type RoomId } from '../world';
-import { RoomView, textStyle } from '../rendering';
+import { RoomView, smoothText, textStyle } from '../rendering';
 import { Controls } from '../systems/Controls';
 import { Player } from '../systems/Player';
 import { Enemy, EnemySystem, ENEMY_INFO } from '../systems/Enemies';
@@ -55,6 +55,7 @@ export class Game extends Phaser.Scene {
         this.snapshotTimer = 0; this.prompt = ''; this.lowOxygenWarned = false;
     }
     create(): void {
+        smoothText(this);
         this.room = ROOMS[this.roomId];
         this.physics.resume();
         this.firstVisit = !this.progress.explored.includes(this.roomId);
@@ -208,7 +209,7 @@ export class Game extends Phaser.Scene {
         this.refill = false;
         const door = this.room.doors.find(d => Math.abs(d.x - p.centerX) < 100 && Math.abs(d.y - p.feet) < 95);
         if (door) {
-            this.prompt = meetsRequirement(door.requires, this.progress) ? `[E / Y] ${door.hidden ? 'Investigate ' : 'Enter '}${door.label.toLowerCase()}` : `[SEALED] ${REQUIREMENT_LABEL[door.requires!]}`;
+            this.prompt = meetsRequirement(door.requires, this.progress) ? `[E / Y] ${door.hidden ? 'Investigate ' : 'Enter '}${door.label.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())}` : `[SEALED] ${REQUIREMENT_LABEL[door.requires!]}`;
             if (pressed) this.travel(door);
             return;
         }
@@ -321,7 +322,7 @@ export class Game extends Phaser.Scene {
     }
     private die(): void {
         this.dead = true; this.player.state = 'Death'; this.player.setVelocity(0, 0).setAcceleration(0, 0); this.player.body.moves = false;
-        this.player.animate(false, false); this.soundEffect('death'); this.notice('THE DEEP REMEMBERS', 'Returning to your last oxygen station. Your discoveries remain.', 2000);
+        this.player.animate(false, false); this.soundEffect('death'); this.game.events.emit(GameEvent.Notice, { title: 'THE DEEP REMEMBERS', body: 'Returning to your last oxygen station. Your discoveries remain.', duration: 2000, death: true } satisfies Notice);
         this.save(); this.emitSnapshot(); this.cameras.main.fadeOut(1300, 5, 8, 17);
         this.time.delayedCall(1500, () => this.scene.restart({ progress: this.progress } satisfies StartData));
     }

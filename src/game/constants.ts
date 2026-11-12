@@ -27,6 +27,6 @@ export interface GameSnapshot {
     boss: { name: string; health: number; maxHealth: number } | null;
     checkpoint: RoomId; saving: boolean; gamepad: boolean;
 }
-export interface Notice { title: string; body: string; duration: number; boss?: boolean }
+export interface Notice { title: string; body: string; duration: number; boss?: boolean; death?: boolean }
 export const EVOLUTION_NAMES = ['I · THE DIVER', 'II · THE BREACH', 'III · THE CARAPACE'] as const;
 export const COLORS = { ink: 0x060f19, panel: 0x091b26, teal: 0x77d4cc, gold: 0xe1bb7a, coral: 0xe97c76, muted: 0x789599, purple: 0xa495d0 };

@@ -15,6 +15,7 @@ Molotology Evolution: a browser game. Phaser 4 + TypeScript + Vite, built as a s
 ## Conventions
 - **Built-ins first**: use Phaser's tweens, `cameras.main`, `Phaser.Math` and physics groups (for pooling) before writing custom versions. Default to Arcade Physics. Use Matter only if clearly required.
 - **Gameplay and UI are separate**: the HUD runs in its own parallel scene (`scene.launch`). Gameplay emits events on `game.events` (see [constants.ts](src/game/constants.ts)) and the HUD listens. Scenes must not reach into each other's state.
+- **Interface is HTML**: menus, HUD, pause and map are DOM in a layer over the canvas (`src/game/ui/`), scaled to the 1280x720 grid, styled in `ui.css` with Cinzel + EB Garamond. Scenes mount it with `mountLayer`, which removes it on shutdown. Keep Phaser text for in-world labels only.
 - **Cleanup**: use scene-scoped timers and events. Remove custom listeners on `Phaser.Scenes.Events.SHUTDOWN` so scene restarts don't leak.
 - **Assets**: static files go in `public/assets/` and are loaded by relative path. If a sprite doesn't exist yet, use a primitive (`add.rectangle` or `add.graphics`) as a placeholder.
 - Scene keys live in `SceneKey` in [constants.ts](src/game/constants.ts). Don't hardcode strings.

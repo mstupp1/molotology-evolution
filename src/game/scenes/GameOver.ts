@@ -1,30 +1,51 @@
 import * as Phaser from 'phaser';
 import { SceneKey, EVOLUTION_NAMES } from '../constants';
 import type { Progress } from '../model';
-import { makeTextures, serifStyle, textStyle } from '../rendering';
+import { makeTextures } from '../rendering';
 import { ROOM_IDS } from '../world';
+import { el, keyHint, mountLayer } from '../ui/layer';
+import { Menu } from '../ui/menu';
+import { titleShade } from './MainMenu';
 
 export class GameOver extends Phaser.Scene {
     private progress: Progress;
     private ready = false;
+    private menu: Menu;
+    private previous = new Set<number>();
     constructor() { super(SceneKey.GameOver); }
-    init(data: { progress: Progress }): void { this.progress = data.progress; this.ready = false; }
+    init(data: { progress: Progress }): void { this.progress = data.progress; this.ready = false; this.previous.clear(); }
     create(): void {
-        makeTextures(this);
-        this.add.image(640, 360, 'wreck').setDisplaySize(1280, 720).setTint(0x698495).setAlpha(0.45);
-        this.add.rectangle(640, 360, 1280, 720, 0x050f19, 0.6);
-        this.add.text(640, 126, 'C H A P T E R   I   /   C O M P L E T E', textStyle(12, '#a3c4bf')).setOrigin(0.5);
-        this.add.text(640, 198, 'The last light goes out.', serifStyle(52)).setOrigin(0.5);
-        this.add.text(640, 285, 'You came here in a diving suit.\nSomething else will leave.', serifStyle(24, '#a7beb5')).setOrigin(0.5).setAlign('center').setLineSpacing(12);
+        makeTextures(this); titleShade(this);
+        this.add.image(640, 360, 'wreck').setDisplaySize(1280, 720).setTint(0x5d7482).setAlpha(0.5);
+        this.add.image(640, 360, 'title-shade').setDisplaySize(1280, 720);
+        this.add.particles(0, 0, 'bubble', { x: { min: 0, max: 1280 }, y: { min: 700, max: 760 }, lifespan: 8000, speedY: { min: -50, max: -20 }, scale: { min: 0.3, max: 0.8 }, alpha: { start: 0.45, end: 0 }, frequency: 220 });
+
+        const layer = mountLayer(this, 'screen-ending');
+        el('div', 'eyebrow', 'Chapter I · Complete', layer);
+        el('div', 'ending-title', 'The last light goes out.', layer);
+        el('div', 'ending-prose', 'You came here in a diving suit. Something else will leave.', layer);
+        el('div', 'ornament', undefined, layer).appendChild(el('span', 'gem'));
         const divers = this.progress.defeated.filter(id => id.startsWith('handcrab:') || id.startsWith('hermit:')).length;
         const pearls = this.progress.collected.filter(id => id.startsWith('pearl:')).length;
-        this.add.text(640, 385, `${EVOLUTION_NAMES[this.progress.evolution]}   ·   ${this.progress.explored.length} / ${ROOM_IDS.length} CHAMBERS   ·   ${divers} / 2 LOST DIVERS FOUND   ·   ${pearls} / 4 VITAL PEARLS`, textStyle(12, '#baac94')).setOrigin(0.5);
-        this.add.particles(0, 0, 'bubble', { x: { min: 0, max: 1280 }, y: { min: 700, max: 760 }, lifespan: 8000, speedY: { min: -50, max: -20 }, scale: { min: 0.3, max: 0.8 }, alpha: { start: 0.5, end: 0 }, frequency: 220 });
-        const explore = this.add.text(640, 485, 'Continue exploring', serifStyle(27, '#e7c88e')).setOrigin(0.5).setInteractive({ useHandCursor: true });
-        const resume = () => this.scene.start(SceneKey.Game, { progress: this.progress, room: 'angler', from: 'caldera' });
-        explore.on('pointerdown', resume); this.input.keyboard!.once('keydown-ENTER', resume);
-        this.add.text(640, 550, 'Return to title', textStyle(15, '#8eadaa')).setOrigin(0.5).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.scene.start(SceneKey.MainMenu));
-        this.add.text(640, 665, 'THE DEEP HAS ONLY BEGUN TO CHANGE YOU.', textStyle(10, '#758f92')).setOrigin(0.5);
+        const stats = el('div', 'stats', undefined, layer);
+        const stat = (value: string, label: string) => { const s = el('div', 'stat', undefined, stats); el('div', 'stat-value', value, s); el('div', 'stat-label', label, s); };
+        stat(EVOLUTION_NAMES[this.progress.evolution].split('·')[1]?.trim().replace(/^THE /, '') ?? '', 'Final form');
+        stat(`${this.progress.explored.length} / ${ROOM_IDS.length}`, 'Chambers');
+        stat(`${divers} / 2`, 'Lost divers');
+        stat(`${pearls} / 4`, 'Vital pearls');
+
+        const resume = () => { if (this.ready) this.scene.start(SceneKey.Game, { progress: this.progress, room: 'angler', from: 'caldera' }); };
+        this.menu = new Menu(layer, [
+            { label: 'Continue Exploring', action: resume },
+            { label: 'Return to Title', action: () => { if (this.ready) this.scene.start(SceneKey.MainMenu); } }
+        ]);
+        const close = el('div', 'ending-close', undefined, layer);
+        keyHint(['↑', '↓'], 'Select', close); keyHint(['Enter'], 'Confirm', close);
+        close.style.fontFamily = 'var(--text)'; close.style.letterSpacing = '0'; close.style.fontSize = '16px';
+
+        const keyboard = this.input.keyboard!;
+        keyboard.on('keydown-UP', () => this.menu.move(-1)); keyboard.on('keydown-DOWN', () => this.menu.move(1));
+        keyboard.on('keydown-ENTER', () => this.menu.confirm()); keyboard.on('keydown-SPACE', () => this.menu.confirm());
         this.cameras.main.fadeIn(1200); this.time.delayedCall(400, () => { this.ready = true; });
         this.ensureMusic();
     }
@@ -35,7 +56,9 @@ export class GameOver extends Phaser.Scene {
         this.sound.play('menu-music', { loop: true, volume: 0.45 });
     }
     update(): void {
-        const pad = Array.from(navigator.getGamepads?.() ?? []).find(p => p?.connected);
-        if (this.ready && pad?.buttons[0]?.pressed) this.scene.start(SceneKey.Game, { progress: this.progress, room: 'angler', from: 'caldera' });
+        const pad = Array.from(navigator.getGamepads?.() ?? []).find(p => p?.connected); if (!pad) return;
+        const edge = (n: number) => pad.buttons[n]?.pressed && !this.previous.has(n);
+        if (edge(12)) this.menu.move(-1); if (edge(13)) this.menu.move(1); if (edge(0)) this.menu.confirm();
+        this.previous.clear(); pad.buttons.forEach((b, i) => { if (b.pressed) this.previous.add(i); });
     }
 }

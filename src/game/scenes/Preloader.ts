@@ -1,18 +1,18 @@
 import * as Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH, SceneKey } from '../constants';
-import { textStyle, serifStyle } from '../rendering';
+import { SceneKey } from '../constants';
+import { el, mountLayer } from '../ui/layer';
 import { ENEMY_KINDS, PLAYER_FRAMES, PLAYER_TEXTURES, playerAnimation, type PlayerAnimation } from '../animation';
 
 export class Preloader extends Phaser.Scene {
     private failures: string[] = [];
+    private layer: HTMLDivElement;
     constructor() { super(SceneKey.Preloader); }
     init(): void {
         this.failures = [];
-        this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 65, 'Descending into the wreck', serifStyle(30)).setOrigin(0.5);
-        const bar = this.add.rectangle(410, GAME_HEIGHT / 2 + 10, 0, 3, 0x8cbfb7).setOrigin(0, 0.5);
-        this.add.rectangle(640, GAME_HEIGHT / 2 + 10, 460, 4).setStrokeStyle(1, 0x31515a);
-        this.add.text(640, 430, 'GATHERING WHAT THE DEEP LEFT BEHIND', textStyle(10, '#6e9399')).setOrigin(0.5);
-        this.load.on(Phaser.Loader.Events.PROGRESS, (p: number) => bar.setDisplaySize(460 * p, 3));
+        this.layer = mountLayer(this, 'screen-loading');
+        el('div', 'loading-title', 'Descending', this.layer);
+        const fill = el('div', 'loading-fill', undefined, el('div', 'loading-track', undefined, this.layer));
+        this.load.on(Phaser.Loader.Events.PROGRESS, (p: number) => { fill.style.width = `${Math.round(p * 100)}%`; });
         this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => this.failures.push(file.key));
     }
     preload(): void {
@@ -30,7 +30,7 @@ export class Preloader extends Phaser.Scene {
     }
     create(): void {
         if (this.failures.length) {
-            this.add.text(640, 500, `Could not load: ${this.failures.join(', ')}\nReload the page to retry.`, textStyle(16, '#e1a49b')).setOrigin(0.5);
+            el('div', 'loading-error', `Could not load: ${this.failures.join(', ')}\nReload the page to retry.`, this.layer);
             return;
         }
         PLAYER_TEXTURES.forEach((texture, stage) => {
@@ -50,6 +50,10 @@ export class Preloader extends Phaser.Scene {
                 if (!this.anims.exists(key)) this.anims.create({ key, frames: this.anims.generateFrameNumbers(`enemy-${kind}`, { frames: [...frames] }), frameRate: rate, repeat });
             }
         }
-        this.scene.start(SceneKey.MainMenu);
+        // In-world labels are drawn to canvas once, so the faces must be ready before the first room.
+        const fonts = ['400 16px Cinzel', '600 16px Cinzel', '400 16px "EB Garamond"', 'italic 400 16px "EB Garamond"'];
+        const ready = Promise.all(fonts.map(f => document.fonts?.load(f))).catch(() => undefined);
+        const timeout = new Promise(resolve => setTimeout(resolve, 2500));
+        Promise.race([ready, timeout]).then(() => { if (this.scene.isActive()) this.scene.start(SceneKey.MainMenu); });
     }
 }
