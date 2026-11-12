@@ -12,14 +12,17 @@ const config: Phaser.Types.Core.GameConfig = {
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     backgroundColor: '#10131a',
-    // Art style undecided: if pixel art, also set `pixelArt: true` and `roundPixels: true`.
+    pixelArt: true,
+    roundPixels: true,
+    disableContextMenu: true,
+    input: { gamepad: true },
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
     physics: {
         default: 'arcade',
-        arcade: { debug: import.meta.env.DEV }
+        arcade: { debug: false, gravity: { x: 0, y: 0 }, fps: 60 }
     },
     scene: [Boot, Preloader, MainMenu, Game, Hud, GameOver]
 };

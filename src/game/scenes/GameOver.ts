@@ -1,21 +1,29 @@
 import * as Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH, SceneKey } from '../constants';
+import { SceneKey, EVOLUTION_NAMES } from '../constants';
+import type { Progress } from '../model';
+import { serifStyle, textStyle } from '../rendering';
 
 export class GameOver extends Phaser.Scene {
-    constructor() {
-        super(SceneKey.GameOver);
+    private progress: Progress;
+    private ready = false;
+    constructor() { super(SceneKey.GameOver); }
+    init(data: { progress: Progress }): void { this.progress = data.progress; this.ready = false; }
+    create(): void {
+        this.add.image(640, 360, 'wreck').setDisplaySize(1280, 720).setTint(0x698495).setAlpha(0.45);
+        this.add.rectangle(640, 360, 1280, 720, 0x050f19, 0.6);
+        this.add.text(640, 126, 'C H A P T E R   I   /   C O M P L E T E', textStyle(12, '#a3c4bf')).setOrigin(0.5);
+        this.add.text(640, 198, 'The last light goes out.', serifStyle(52)).setOrigin(0.5);
+        this.add.text(640, 285, 'You came here in a diving suit.\nSomething else will leave.', serifStyle(24, '#a7beb5')).setOrigin(0.5).setAlign('center').setLineSpacing(12);
+        this.add.text(640, 385, `${EVOLUTION_NAMES[this.progress.evolution]}   ·   ${this.progress.explored.length} / 14 CHAMBERS   ·   ${this.progress.defeated.length - 1} / 2 LOST DIVERS FOUND`, textStyle(12, '#baac94')).setOrigin(0.5);
+        const explore = this.add.text(640, 485, 'Continue exploring', serifStyle(27, '#e7c88e')).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        const resume = () => this.scene.start(SceneKey.Game, { progress: this.progress, room: 'angler', from: 'chapel' });
+        explore.on('pointerdown', resume); this.input.keyboard!.once('keydown-ENTER', resume);
+        this.add.text(640, 550, 'Return to title', textStyle(15, '#8eadaa')).setOrigin(0.5).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.scene.start(SceneKey.MainMenu));
+        this.add.text(640, 665, 'THE DEEP HAS ONLY BEGUN TO CHANGE YOU.', textStyle(10, '#758f92')).setOrigin(0.5);
+        this.cameras.main.fadeIn(1200); this.time.delayedCall(400, () => { this.ready = true; });
     }
-
-    create() {
-        this.add
-            .text(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'Game Over\nClick to return to menu', {
-                fontFamily: 'sans-serif',
-                fontSize: '48px',
-                color: '#ffffff',
-                align: 'center'
-            })
-            .setOrigin(0.5);
-
-        this.input.once(Phaser.Input.Events.POINTER_DOWN, () => this.scene.start(SceneKey.MainMenu));
+    update(): void {
+        const pad = Array.from(navigator.getGamepads?.() ?? []).find(p => p?.connected);
+        if (this.ready && pad?.buttons[0]?.pressed) this.scene.start(SceneKey.Game, { progress: this.progress, room: 'angler', from: 'chapel' });
     }
 }

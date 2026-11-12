@@ -7,5 +7,6 @@ export default defineConfig({
     build: { chunkSizeWarningLimit: 2000 }, // Phaser alone is ~1.5MB minified
     test: {
         environment: 'node',
+        include: ['src/**/*.test.ts'],
     }
 });

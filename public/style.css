@@ -2,8 +2,12 @@ body {
     margin: 0;
     padding: 0;
     color: rgba(255, 255, 255, 0.87);
-    background-color: #0f0f0f;
+    background-color: #030a11;
 }
+
+#game-container { width: 100vw; height: 100vh; height: 100dvh; }
+canvas { display: block; image-rendering: pixelated; outline: none; }
+* { box-sizing: border-box; }
 
 #app {
     width: 100%;
