@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 import { SceneKey, EVOLUTION_NAMES } from '../constants';
 import type { Progress } from '../model';
-import { serifStyle, textStyle } from '../rendering';
+import { makeTextures, serifStyle, textStyle } from '../rendering';
 
 export class GameOver extends Phaser.Scene {
     private progress: Progress;
@@ -9,12 +9,16 @@ export class GameOver extends Phaser.Scene {
     constructor() { super(SceneKey.GameOver); }
     init(data: { progress: Progress }): void { this.progress = data.progress; this.ready = false; }
     create(): void {
+        makeTextures(this);
         this.add.image(640, 360, 'wreck').setDisplaySize(1280, 720).setTint(0x698495).setAlpha(0.45);
         this.add.rectangle(640, 360, 1280, 720, 0x050f19, 0.6);
         this.add.text(640, 126, 'C H A P T E R   I   /   C O M P L E T E', textStyle(12, '#a3c4bf')).setOrigin(0.5);
         this.add.text(640, 198, 'The last light goes out.', serifStyle(52)).setOrigin(0.5);
         this.add.text(640, 285, 'You came here in a diving suit.\nSomething else will leave.', serifStyle(24, '#a7beb5')).setOrigin(0.5).setAlign('center').setLineSpacing(12);
-        this.add.text(640, 385, `${EVOLUTION_NAMES[this.progress.evolution]}   ·   ${this.progress.explored.length} / 14 CHAMBERS   ·   ${this.progress.defeated.length - 1} / 2 LOST DIVERS FOUND`, textStyle(12, '#baac94')).setOrigin(0.5);
+        const divers = this.progress.defeated.filter(id => !id.includes(':angler:')).length;
+        const pearls = this.progress.collected.filter(id => id.startsWith('pearl:')).length;
+        this.add.text(640, 385, `${EVOLUTION_NAMES[this.progress.evolution]}   ·   ${this.progress.explored.length} / 14 CHAMBERS   ·   ${divers} / 2 LOST DIVERS FOUND   ·   ${pearls} / 4 VITAL PEARLS`, textStyle(12, '#baac94')).setOrigin(0.5);
+        this.add.particles(0, 0, 'bubble', { x: { min: 0, max: 1280 }, y: { min: 700, max: 760 }, lifespan: 8000, speedY: { min: -50, max: -20 }, scale: { min: 0.3, max: 0.8 }, alpha: { start: 0.5, end: 0 }, frequency: 220 });
         const explore = this.add.text(640, 485, 'Continue exploring', serifStyle(27, '#e7c88e')).setOrigin(0.5).setInteractive({ useHandCursor: true });
         const resume = () => this.scene.start(SceneKey.Game, { progress: this.progress, room: 'angler', from: 'chapel' });
         explore.on('pointerdown', resume); this.input.keyboard!.once('keydown-ENTER', resume);

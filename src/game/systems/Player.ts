@@ -11,7 +11,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     private ledge: { x: number; y: number } | null = null;
     private mantleTime = 0;
     private compact = false;
-    private visual: Phaser.GameObjects.Sprite;
+    readonly visual: Phaser.GameObjects.Sprite;
+    /** Set for one update when the player touches down or leaves the ground; read by the scene for effects. */
+    landed = 0; jumped = false;
+    private grounded = true; private airTime = 0; private squash = 0;
     constructor(scene: Phaser.Scene, x: number, y: number) {
         super(scene, x, y, 'diver', 0);
         scene.add.existing(this); scene.physics.add.existing(this);
@@ -34,6 +37,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         return !platforms.some(p => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y);
     }
     updateController(dt: number, input: InputFrame, air: boolean, platforms: Rect[], busy: boolean): void {
+        this.landed = 0; this.jumped = false;
+        const grounded = this.body.blocked.down;
+        if (grounded && !this.grounded && this.airTime > 0.18) { this.landed = Math.min(1, this.airTime / 0.9); this.squash = 0.1 + 0.12 * this.landed; }
+        this.airTime = grounded ? 0 : this.airTime + dt; this.grounded = grounded;
+        this.squash *= Math.pow(0.0005, dt);
         this.elapsed += dt; this.dashCooldown = Math.max(0, this.dashCooldown - dt); this.hurtTime = Math.max(0, this.hurtTime - dt);
         if (this.state === 'Death') { this.setVelocity(0, 0); return; }
         if (this.state === 'HarpoonPull') return;
@@ -74,7 +82,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
             this.body.velocity.x = Phaser.Math.Clamp(this.body.velocity.x, -235, 235);
         } else this.setAccelerationX(0);
         if (this.jumpBuffer > 0 && this.coyote > 0 && !this.compact) {
-            this.setVelocityY(air ? -545 : -455); this.coyote = 0; this.jumpBuffer = 0;
+            this.setVelocityY(air ? -545 : -455); this.coyote = 0; this.jumpBuffer = 0; this.jumped = true; this.squash = -0.12;
         }
         if (!input.jumpHeld && this.body.velocity.y < -160) this.setVelocityY(this.body.velocity.y * 0.68);
         this.state = this.body.blocked.down ? (Math.abs(this.body.velocity.x) > 22 ? 'Walk' : 'Idle') : this.body.velocity.y < 0 ? 'Jump' : 'Fall';
@@ -95,9 +103,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         if (state === 'Walk') this.visual.play(`walk-${this.evolution}`, true);
         else { this.visual.anims.stop(); this.visual.setFrame(this.evolution * 6 + pose); }
         this.visual.setFlipX(this.facing < 0).setAlpha(this.alpha);
-        const scaleY = state === 'Dash' ? 0.42 : state === 'Idle' ? 1 + Math.sin(this.elapsed * (oxygenLow ? 8 : 2)) * 0.008 : 1;
-        // Art can breathe and compress in a duct without scaling the collision body.
-        this.visual.setPosition(this.x, this.y + 70 * (1 - scaleY)).setScale(1, scaleY);
+        const scaleY = (state === 'Dash' ? 0.42 : state === 'Idle' ? 1 + Math.sin(this.elapsed * (oxygenLow ? 8 : 2)) * 0.008 : 1) * (1 - this.squash);
+        const scaleX = state === 'Dash' ? 1 : 1 + this.squash * 0.8;
+        // Art can breathe, squash and compress in a duct without scaling the collision body.
+        this.visual.setPosition(this.x, this.y + 70 * (1 - scaleY)).setScale(scaleX, scaleY);
         this.visual.setAngle(state === 'Death' ? -80 * this.facing : state === 'Hurt' ? -8 * this.facing : 0);
         if (replenishing) this.visual.setTint(0xa2ffe4); else if (oxygenLow && Math.sin(this.elapsed * 7) > 0.4) this.visual.setTint(0xe49b9a); else this.visual.clearTint();
     }

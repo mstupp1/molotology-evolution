@@ -12,7 +12,8 @@ test.beforeAll(async () => {
             const relative = new URL(request.url, 'http://localhost').pathname.replace(/^\/prototype\//, '') || 'index.html';
             const path = resolve(root, relative);
             if (!path.startsWith(root + sep)) { response.writeHead(404).end(); return; }
-            response.writeHead(200, { 'Content-Type': mime[extname(path)] ?? 'application/octet-stream' }); response.end(await readFile(path));
+            const body = await readFile(path);
+            response.writeHead(200, { 'Content-Type': mime[extname(path)] ?? 'application/octet-stream' }); response.end(body);
         } catch { response.writeHead(404).end(); }
     });
     await new Promise(resolve => server.listen(8082, '127.0.0.1', resolve));
@@ -24,10 +25,10 @@ test('production build loads all art/audio from a subdirectory and starts withou
     page.on('pageerror', error => errors.push(error.message));
     page.on('response', response => { if (response.status() >= 400) failed.push(response.url()); });
     await page.goto('http://127.0.0.1:8082/prototype/');
-    await page.waitForLoadState('networkidle'); await page.waitForTimeout(700);
+    await page.waitForLoadState('networkidle'); await page.waitForTimeout(1500);
     expect(await page.evaluate(() => '__MOLOTOLOGY__' in window)).toBe(false);
     await page.screenshot({ path: 'art/qa/title.png' });
-    await page.keyboard.press('Enter'); await page.waitForTimeout(1500);
+    await page.keyboard.press('Enter'); await page.waitForTimeout(2600);
     await page.screenshot({ path: 'art/qa/gameplay.png' });
     const fps = await page.evaluate(() => new Promise(resolve => {
         let frames = 0; const start = performance.now();

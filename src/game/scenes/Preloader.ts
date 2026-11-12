@@ -20,7 +20,7 @@ export class Preloader extends Phaser.Scene {
         this.load.spritesheet('diver', 'diver.png', { frameWidth: 160, frameHeight: 160 });
         for (let i = 0; i < 8; i++) { this.load.image(`creature-${i}`, `creature-${i}.png`); this.load.image(`prop-${i}`, `prop-${i}.png`); }
         for (const key of ['key', 'harpoon-icon', 'molt-icon']) this.load.image(key, `${key}.png`);
-        for (const key of ['ambience', 'slash', 'hit', 'harpoon', 'refill', 'molt', 'death']) this.load.audio(key, `${key}.wav`);
+        for (const key of ['ambience', 'slash', 'hit', 'harpoon', 'refill', 'molt', 'death', 'jump', 'land', 'dash', 'pickup', 'door', 'kill', 'hurt', 'roar']) this.load.audio(key, `${key}.wav`);
     }
     create(): void {
         if (this.failures.length) {

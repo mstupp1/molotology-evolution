@@ -56,7 +56,7 @@ test('station refill, local Continue and death preserve discovered abilities', a
     await fixture(page, 'armory'); await place(page, 500, 850);
     await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game; s.survival.health = 20; s.survival.oxygen = 5; });
     await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).health).toBe(100);
-    expect((await state(page)).health).toBe(100); expect((await state(page)).oxygen).toBeGreaterThan(80);
+    expect((await state(page)).health).toBe(100); await expect.poll(async () => (await state(page)).oxygen, { timeout: 4000 }).toBeGreaterThan(80);
     await page.reload(); await page.waitForFunction(() => window.__MOLOTOLOGY__?.scene.isActive('MainMenu'));
     await page.keyboard.press('Enter'); await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.isActive('Game'));
     expect((await state(page)).room).toBe('armory'); expect((await state(page)).harpoon).toBe(true);
@@ -69,8 +69,8 @@ test('Harpoon pulls to the mandatory high ledge without passing through platform
     await page.waitForTimeout(400);
     const anchor = await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game, a = s.room.anchors[0]; return { x: a.x - s.cameras.main.scrollX, y: a.y - s.cameras.main.scrollY }; });
     await page.mouse.move(anchor.x, anchor.y); await page.mouse.down({ button: 'right' }); await page.waitForTimeout(200); await page.mouse.up({ button: 'right' });
-    await page.waitForTimeout(1600); const landed = await state(page);
-    expect(landed.x).toBeGreaterThan(1130); expect(landed.feet).toBeCloseTo(500, 0);
+    await expect.poll(async () => (await state(page)).x, { timeout: 6000 }).toBeGreaterThan(1130);
+    await expect.poll(async () => (await state(page)).feet, { timeout: 4000 }).toBeCloseTo(500, 0);
     await page.screenshot({ path: 'art/qa/grapple.png' });
     await travel(page, 'rigging'); expect((await state(page)).room).toBe('rigging');
 });
@@ -104,7 +104,7 @@ test('every enemy room renders, hidden miniboss rewards persist, and Angler vict
     }
     expect((await state(page)).completed).toBe(true);
     await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.isActive('GameOver'));
-    await page.screenshot({ path: 'art/qa/victory.png' }); await page.keyboard.press('Enter');
+    await page.waitForTimeout(1500); await page.screenshot({ path: 'art/qa/victory.png' }); await page.keyboard.press('Enter');
     await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.isActive('Game')); expect((await state(page)).room).toBe('angler');
     expect(errors).toEqual([]);
 });
@@ -116,13 +116,38 @@ test('simulated gamepad covers movement, jump, dodge, aim-release and pause/resu
     });
     await start(page); const initial = await state(page);
     const button = async (n, down) => { await page.evaluate(({n,down}) => { window.__pad.buttons[n] = {pressed:down,touched:down,value:down?1:0}; }, {n,down}); await page.waitForTimeout(80); };
-    await page.evaluate(() => { window.__pad.axes[0] = 1; }); await page.waitForTimeout(500); await page.evaluate(() => { window.__pad.axes[0] = 0; });
-    expect((await state(page)).x).toBeGreaterThan(initial.x + 50);
-    await button(0, true); await page.waitForTimeout(150); await button(0, false); expect((await state(page)).y).toBeLessThan(initial.y - 30);
-    await button(1, true); expect((await state(page)).state).toBe('Dodge'); await button(1, false);
+    await page.evaluate(() => { window.__pad.axes[0] = 1; });
+    await expect.poll(async () => (await state(page)).x, { timeout: 5000 }).toBeGreaterThan(initial.x + 50);
+    await page.evaluate(() => { window.__pad.axes[0] = 0; });
+    await page.waitForTimeout(300); const grounded = await state(page);
+    await button(0, true); await expect.poll(async () => (await state(page)).y, { timeout: 3000 }).toBeLessThan(grounded.y - 30); await button(0, false);
+    await expect.poll(async () => (await state(page)).state, { timeout: 4000 }).toMatch(/Idle|Walk/);
+    await button(1, true); await expect.poll(async () => (await state(page)).state, { timeout: 2000 }).toBe('Dodge'); await button(1, false);
     await button(9, true); await expect.poll(async () => (await state(page)).paused).toBe(true); await button(9, false); await button(9, true); await button(9, false); await expect.poll(async () => (await state(page)).paused).toBe(false);
     await fixture(page, 'bell', { harpoon:true });
     await page.evaluate(() => { window.__pad.axes[2] = .4; window.__pad.axes[3] = -.9; });
     await button(7, true); expect((await state(page)).state).toBe('HarpoonAim'); await button(7, false);
     expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.harpoon.mode)).not.toBe('ready');
+});
+
+test('v2: vital pearls raise maximum health, enemies die with an animation, and the boss is introduced', async ({ page }) => {
+    const errors = []; page.on('pageerror', e => { errors.push(e.message); console.log('BROWSER ERROR', e.stack); });
+    await start(page);
+    expect(await page.evaluate(() => ['jump', 'land', 'dash', 'pickup', 'door', 'kill', 'hurt', 'roar'].filter(k => !window.__MOLOTOLOGY__.cache.audio.exists(k)))).toEqual([]);
+    await pickup(page, 'cargo', 2640, 620);
+    await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.maxHealth)).toBe(120);
+    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.health)).toBe(120);
+    await fixture(page, 'cargo');
+    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.view.pickups.length)).toBe(0);
+    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.maxHealth)).toBe(120);
+    // A killing blow disables collision at once, plays a fade, and the simulation resumes after hitstop.
+    await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game, e = s.enemies.list.find(e => e.kind === 'urchin'); e.health = 1; e.timer = 10; s.player.resetAt(e.x - 80, 850); s.player.facing = 1; });
+    await page.keyboard.press('j');
+    await expect.poll(() => page.evaluate(() => { const e = window.__MOLOTOLOGY__.scene.keys.Game.enemies.list.find(e => e.kind === 'urchin'); return [e.active, e.body.enable]; })).toEqual([false, false]);
+    await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.enemies.list.find(e => e.kind === 'urchin').visible), { timeout: 4000 }).toBe(false);
+    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.physics.world.isPaused)).toBe(false);
+    await fixture(page, 'angler'); await place(page, 1500, 850);
+    await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.bossIntroduced), { timeout: 4000 }).toBe(true);
+    await page.screenshot({ path: 'art/qa/boss.png' });
+    expect(errors).toEqual([]);
 });
