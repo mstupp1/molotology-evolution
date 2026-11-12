@@ -51,7 +51,11 @@ There are **twelve main chambers**, two hidden former-diver miniboss chambers, f
 5. Dash through the low Ballast Duct. Recover the chapel key in the Officer's Quarters.
 6. Enter the Drowned Chapel, use the final oxygen station, and confront the Angler in the eastern hold.
 
+Four **Vital Pearls** are hidden on high ledges in the Cargo Hold, Rigging Shaft, Officer’s Quarters and Drowned Chapel (reach the last one by grappling from the chapel's ring). Each permanently raises maximum vitality by 20.
+
 Look for discarded equipment and scratched machinery on elevated Cargo Hold and Pressure Works platforms to find the Handcrab and the Hermit. Rigging/Air Bell and Ballast/Cargo connections form return routes. The victory screen lets you continue exploring.
+
+The Angler lunges after a telegraphed windup. Dodge the lunge, then punish it while it hangs open-jawed and drifts back up; below half health it fires a spread of lures.
 
 Start with 100 health and 120 seconds of oxygen. Water drains oxygen at one second per second; empty reserves drain 8 health per second. Air pockets restore oxygen. Interacting with oxygen stations restores both resources and sets a checkpoint. Death preserves discoveries, upgrades, opened doors, and defeated bosses, returning you to that station with full resources. Ordinary enemies respawn when re-entering a chamber. Normal enemy kills restore a little health.
 
@@ -76,6 +80,9 @@ The browser suite checks real keyboard actions, camera rendering, map pausing, c
 - Player, input, enemy and tether systems: `src/game/systems/`.
 - Gameplay and the parallel HUD communicate through typed `game.events` contracts in `src/game/constants.ts`.
 - Effects use Phaser 4 Filters; Arcade owns collision, gravity, reusable effect/projectile groups, and scene cleanup.
+- Per-room art direction (tint, fog, light shafts, lantern color, darkness) lives in `THEMES` in `src/game/rendering.ts`; decoration is placed with a per-room seed so chambers no longer look cloned.
+- Combat feedback (hitstop, damage numbers, death fades, dash afterimages, squash and stretch, camera lookahead) is in `src/game/scenes/Game.ts` and `src/game/systems/`.
+- v2 sound cues (jump, land, dash, pickup, door, kill, hurt, roar) are synthesized by `node scripts/synth_sfx.mjs`.
 - Original reference-guided pixel art and generated audio are shipped under `public/assets/`; source art, prompts, extraction details and limitations are documented in [art/README.md](art/README.md).
 
 The shipped prototype uses three forms (Diver, Breach, Infestation) and compact pose-based animation: two walking frames plus dedicated idle, jump, attack and aim poses, with additional motion for dodge, Dash, hurt, death and survival overlays. Later evolution forms and reference biomes are outside this chapter. The 20–30 minute playtime is a design target, not a measured completion time.

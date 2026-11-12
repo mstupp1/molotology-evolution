@@ -36,6 +36,7 @@ export const ROOMS: Record<RoomId, Room> = {
     cargo: room('cargo', 'The Cargo Hold', [2, 2], {
         subtitle: '03 / SOMETHING IN THE CRATES',
         doors: [door('cargo', 'bell', 100, 'AIR BELL'), door('cargo', 'armory', 3040, 'ARMORY'), door('cargo', 'handcrab', 1320, 'SCRATCHED BULKHEAD', { hidden: true, y: 578 }), door('cargo', 'ballast', 2450, 'BALLAST SHORTCUT', { requires: 'dash', shortcut: true })],
+        pickups: [{ id: 'pearl:cargo', kind: 'health', x: 2640, y: 575 }],
         enemies: [mob('cargo', 'urchin', 780), mob('cargo', 'jellyfish', 1650, 660), mob('cargo', 'urchin', 2100), mob('cargo', 'jellyfish', 2700, 540)],
         log: 'The manifest lists fourteen divers. There are fifteen sets of scratches on the inside of this door.'
     }),
@@ -48,6 +49,7 @@ export const ROOMS: Record<RoomId, Room> = {
         subtitle: '05 / THE BONES OF THE SHIP', anchors: [{ x: 450, y: 450 }, { x: 1170, y: 340 }, { x: 2080, y: 460 }],
         platforms: [platform(0, 850, WIDTH, 174), platform(510, 520, 370), platform(1230, 410, 400), platform(2140, 530, 400)],
         doors: [door('rigging', 'bell', 100, 'AIR BELL', { shortcut: true }), door('rigging', 'infirmary', 3040, 'INFIRMARY')],
+        pickups: [{ id: 'pearl:rigging', kind: 'health', x: 1560, y: 365 }],
         enemies: [mob('rigging', 'jellyfish', 1150, 600), mob('rigging', 'shark', 2300, 710)],
         log: 'The cables sway against the current. They are being pulled from the other end.'
     }),
@@ -79,17 +81,19 @@ export const ROOMS: Record<RoomId, Room> = {
     quarters: room('quarters', 'The Officer’s Quarters', [5, 2], {
         subtitle: '10 / ORDERS FROM BELOW', station: { x: 450, y: 850 }, air: [{ x: 0, y: 0, w: 900, h: 1024 }],
         doors: [door('quarters', 'ballast', 100, 'BALLAST DUCT'), door('quarters', 'chapel', 3040, 'DROWNED CHAPEL', { requires: 'key' })],
-        pickups: [{ id: 'key', kind: 'key', x: 2640, y: 580 }], enemies: [mob('quarters', 'octopus', 1350), mob('quarters', 'shark', 2200, 690)],
+        pickups: [{ id: 'key', kind: 'key', x: 2640, y: 580 }, { id: 'pearl:quarters', kind: 'health', x: 1420, y: 545 }], enemies: [mob('quarters', 'octopus', 1350), mob('quarters', 'shark', 2200, 690)],
         log: 'CAPTAIN’S ORDER — Seal the chapel. The light at the altar is not ours.'
     }),
     chapel: room('chapel', 'The Drowned Chapel', [2, 3], {
         subtitle: '11 / A LIGHT THAT HUNGERS', color: 0x2d2843, station: { x: 2620, y: 850 },
+        platforms: [platform(0, 850, WIDTH, 174), platform(580, 690, 240), platform(1080, 470, 280), platform(1200, 610, 300), platform(1900, 710, 280), platform(2500, 620, 280)],
+        pickups: [{ id: 'pearl:chapel', kind: 'health', x: 1310, y: 425 }],
         doors: [door('chapel', 'bell', 100, 'AIR BELL', { shortcut: true }), door('chapel', 'quarters', 1500, 'OFFICER’S QUARTERS'), door('chapel', 'angler', 3040, 'ANGLER HOLD')], anchors: [{ x: 1200, y: 410 }],
         enemies: [mob('chapel', 'jellyfish', 750, 660), mob('chapel', 'octopus', 1900)], log: 'The congregation is gone. The lights still move between the pews.'
     }),
     angler: room('angler', 'The Angler Hold', [3, 3], {
         subtitle: '12 / THE LAST LIGHT', color: 0x172137, doors: [door('angler', 'chapel', 100, 'DROWNED CHAPEL')],
-        enemies: [mob('angler', 'angler', 2260, 610)], anchors: [{ x: 800, y: 400 }, { x: 2400, y: 400 }],
+        enemies: [mob('angler', 'angler', 2260, 640)], anchors: [{ x: 800, y: 400 }, { x: 2400, y: 400 }],
         log: 'A lantern hangs in the darkness. Then the darkness opens its mouth.'
     }),
     handcrab: room('handcrab', 'The Unlisted Diver', [2, 0], {

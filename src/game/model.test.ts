@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collect, Combo, decodeSave, newProgress, SaveStore, Survival, SAVE_KEY } from './model';
+import { collect, Combo, decodeSave, maxHealth, newProgress, PEARL_HEALTH, SaveStore, Survival, SAVE_KEY } from './model';
 
 describe('survival', () => {
     it('has two minutes of air, then drains health only for the time without oxygen', () => {
@@ -15,6 +15,18 @@ describe('survival', () => {
     it('rejects repeated contact hits during invulnerability, but drowning remains active', () => {
         const s = new Survival(); expect(s.hit(20)).toBe(true); expect(s.hit(20)).toBe(false);
         s.oxygen = 0; s.update(1, false, false); expect(s.health).toBe(72); expect(s.hit(12)).toBe(true);
+    });
+});
+describe('vital pearls', () => {
+    it('raise maximum health once per pearl and survive a save round trip', () => {
+        const p = newProgress(); expect(maxHealth(p)).toBe(100);
+        collect(p, 'pearl:cargo', 'health'); collect(p, 'pearl:cargo', 'health'); collect(p, 'pearl:chapel', 'health');
+        expect(maxHealth(p)).toBe(100 + 2 * PEARL_HEALTH);
+        expect(maxHealth(decodeSave(JSON.stringify(p))!)).toBe(100 + 2 * PEARL_HEALTH);
+    });
+    it('lets stations refill to the raised maximum, and starts full', () => {
+        const s = new Survival(140); expect(s.health).toBe(140);
+        s.health = 10; s.update(10, false, true); expect(s.health).toBe(140);
     });
 });
 describe('combo damage windows', () => {

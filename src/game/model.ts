@@ -15,6 +15,9 @@ export function objective(p: Progress): string {
     if (!p.key) return 'Dash through the Ballast Duct. Find the chapel key.';
     return 'Unseal the Drowned Chapel. Extinguish the last light.';
 }
+/** Each Vital Pearl found in the wreck permanently raises maximum health. */
+export const PEARL_HEALTH = 20;
+export function maxHealth(p: Pick<Progress, 'collected'>): number { return 100 + PEARL_HEALTH * p.collected.filter(id => id.startsWith('pearl:')).length; }
 export function collect(p: Progress, id: string, kind: PickupKind): boolean {
     if (p.collected.includes(id)) return false;
     p.collected.push(id);
@@ -52,11 +55,12 @@ export class SaveStore {
 export function browserSaveStore(): SaveStore { try { return new SaveStore(window.localStorage); } catch { return new SaveStore(); } }
 export class Survival {
     health = 100; oxygen = 120; invulnerable = 0;
+    constructor(public maxHealth = 100) { this.health = maxHealth; }
     update(dt: number, air: boolean, refill: boolean): void {
         this.invulnerable = Math.max(0, this.invulnerable - dt);
         const suffocatingTime = air || refill ? 0 : Math.max(0, dt - this.oxygen);
         this.oxygen = Math.max(0, Math.min(120, this.oxygen + (air || refill ? 40 : -1) * dt));
-        if (refill) this.health = Math.min(100, this.health + 50 * dt);
+        if (refill) this.health = Math.min(this.maxHealth, this.health + 50 * dt);
         this.health = Math.max(0, this.health - 8 * suffocatingTime);
     }
     hit(damage: number, invulnerability = 0.85): boolean {

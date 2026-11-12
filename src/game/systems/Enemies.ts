@@ -10,13 +10,13 @@ export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; heigh
     shark: { frame: 3, width: 210, height: 110, hp: 135, damage: 22, name: 'Abyssal Shark' },
     handcrab: { frame: 4, width: 235, height: 210, hp: 420, damage: 20, name: 'THE UNLISTED DIVER' },
     hermit: { frame: 5, width: 260, height: 240, hp: 540, damage: 24, name: 'THE BORROWED SHELL' },
-    angler: { frame: 6, width: 390, height: 330, hp: 900, damage: 28, name: 'THE LAST LIGHT' }
+    angler: { frame: 6, width: 390, height: 330, hp: 820, damage: 28, name: 'THE LAST LIGHT' }
 };
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
     declare body: Phaser.Physics.Arcade.Body;
     health: number; maxHealth: number;
     mode: 'patrol' | 'windup' | 'strike' | 'recover' = 'patrol'; timer = 1.8; elapsed = 0;
-    target = new Phaser.Math.Vector2(); home = new Phaser.Math.Vector2(); cycles = 0; stun = 0;
+    target = new Phaser.Math.Vector2(); home = new Phaser.Math.Vector2(); cycles = 0; stun = 0; flash = 0;
     constructor(scene: Phaser.Scene, readonly spec: EnemySpawn, swimming: boolean) {
         super(scene, spec.x, spec.y, `creature-${ENEMY_INFO[spec.kind].frame}`);
         scene.add.existing(this); scene.physics.add.existing(this);
@@ -33,7 +33,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         if (this.health <= 0) return false;
         this.health = Math.max(0, this.health - amount); this.stun = this.boss ? 0.12 : 0.32;
         this.setVelocityX(pullX === undefined ? direction * 150 : Math.sign(pullX - this.x) * 380);
-        this.setTint(0xffc6b2);
+        this.flash = 0.07; this.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
         return true;
     }
 }
@@ -54,12 +54,15 @@ export class EnemySystem {
         this.collider = scene.physics.add.collider(this.list, platforms);
     }
     blocked(ax: number, ay: number, bx: number, by: number): boolean { return this.geometry.some(r => segmentRect(ax, ay, bx, by, r) !== null); }
-    shoot(e: Enemy, player: Player): void {
-        const shot = this.projectiles.get(e.x, e.y, 'spark') as Phaser.Physics.Arcade.Image | null;
-        if (!shot) return;
-        shot.enableBody(true, e.x, e.y, true, true).setDepth(22).setCircle(6).setTint(e.kind === 'angler' ? 0xb5a4eb : 0x8ce9fa);
-        shot.setData('life', 7); const v = new Phaser.Math.Vector2(player.centerX - e.x, player.centerY - e.y).normalize().scale(150);
-        shot.setVelocity(v.x, v.y);
+    shoot(e: Enemy, player: Player, spread = 0): void {
+        const ox = e.kind === 'angler' ? (e.flipX ? 120 : -120) : 0, oy = e.kind === 'angler' ? -90 : 0;
+        for (let i = -spread; i <= spread; i++) {
+            const shot = this.projectiles.get(e.x + ox, e.y + oy, 'spark') as Phaser.Physics.Arcade.Image | null;
+            if (!shot) return;
+            shot.enableBody(true, e.x + ox, e.y + oy, true, true).setDepth(22).setCircle(6).setScale(1.4).setTint(e.kind === 'angler' ? 0xc8b4ff : 0x8ce9fa).setBlendMode(Phaser.BlendModes.ADD);
+            shot.setData('life', 7); const v = new Phaser.Math.Vector2(player.centerX - e.x - ox, player.centerY - e.y - oy).normalize().rotate(i * 0.28).scale(e.kind === 'angler' ? 175 : 150);
+            shot.setVelocity(v.x, v.y);
+        }
     }
     update(dt: number, player: Player): void {
         this.graphics.clear();
@@ -68,7 +71,9 @@ export class EnemySystem {
             e.elapsed += dt; e.timer -= dt;
             const dx = player.centerX - e.x, dy = player.centerY - e.y, distance = Math.hypot(dx, dy);
             e.setFlipX(dx > 0);
-            if (e.stun > 0) { e.stun -= dt; continue; } else e.clearTint();
+            if (e.flash > 0) { e.flash -= dt; if (e.flash <= 0) e.setTintMode(Phaser.TintModes.MULTIPLY).setTint(0xff9d8b); }
+            if (e.stun > 0) { e.stun -= dt; continue; } else if (e.mode !== 'windup') e.clearTint();
+            if (e.kind === 'angler' && e.health < e.maxHealth / 2 && e.mode !== 'windup') e.setTint(0xd8c4ff);
             const enraged = e.kind === 'angler' && e.health < e.maxHealth / 2;
             if (e.mode === 'patrol') {
                 if (e.kind === 'jellyfish') { e.setVelocity(Math.cos(e.elapsed * 0.6) * 45, Math.sin(e.elapsed * 0.9) * 35); }
@@ -98,7 +103,8 @@ export class EnemySystem {
                         const v = new Phaser.Math.Vector2(e.target.x - e.x, ['shark', 'angler'].includes(e.kind) ? e.target.y - e.y : 0).normalize();
                         e.setVelocity(v.x * (enraged ? 570 : e.boss ? 420 : 540), v.y * 340);
                     }
-                    if ((e.kind === 'jellyfish' && e.cycles % 3 === 0) || (e.kind === 'angler' && e.cycles % 2 === 0)) this.shoot(e, player);
+                    if (e.kind === 'jellyfish' && e.cycles % 3 === 0) this.shoot(e, player);
+                    if (e.kind === 'angler' && (enraged || e.cycles % 2 === 0)) this.shoot(e, player, enraged ? 1 : 0);
                 }
             } else if (e.mode === 'strike') {
                 if (e.kind === 'jellyfish' || e.kind === 'urchin') {
@@ -113,9 +119,14 @@ export class EnemySystem {
                     const hit = Phaser.Geom.Intersects.LineToRectangle(new Phaser.Geom.Line(e.x, e.y, e.target.x, e.target.y), new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height));
                     if (hit) this.damagePlayer(18, e.x);
                 }
-                if (e.timer <= 0 || e.body.blocked.left || e.body.blocked.right) { e.mode = 'recover'; e.timer = e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
-            } else if (e.timer <= 0) { e.mode = 'patrol'; e.timer = enraged ? 0.45 : 1.1; }
-            if (e.kind !== 'urchin' && Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height))) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
+                if (e.timer <= 0 || e.body.blocked.left || e.body.blocked.right) { e.mode = 'recover'; e.timer = e.kind === 'angler' ? (enraged ? 1.3 : 1.7) : e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
+            } else {
+                // After a lunge the Angler hangs open-jawed and drifts back up: a readable punish window.
+                if (e.kind === 'angler') { e.setVelocity(0, (e.home.y - e.y) * 0.9); if (Math.sin(e.elapsed * 12) > 0) e.setTint(0xffe0a0); }
+                if (e.timer <= 0) { e.mode = 'patrol'; e.timer = enraged ? 0.45 : 1.1; }
+            }
+            const harmless = e.kind === 'urchin' || e.kind === 'angler' && e.mode === 'recover';
+            if (!harmless && Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height))) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
             if (e.health < e.maxHealth && !e.boss) {
                 this.graphics.fillStyle(0x0a101c).fillRect(e.x - 26, e.y - e.displayHeight / 2 - 14, 52, 4);
                 this.graphics.fillStyle(0xe5877c).fillRect(e.x - 26, e.y - e.displayHeight / 2 - 14, 52 * e.health / e.maxHealth, 4);
@@ -130,9 +141,15 @@ export class EnemySystem {
             if (Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height))) { this.damagePlayer(15, p.x); p.disableBody(true, true); }
         });
     }
-    hit(e: Enemy, amount: number, direction: number, pullX?: number): void {
-        if (!e.takeDamage(amount, direction, pullX)) return;
-        if (e.health === 0) { e.disableBody(true, true); this.onKill(e); }
+    hit(e: Enemy, amount: number, direction: number, pullX?: number): boolean {
+        if (!e.takeDamage(amount, direction, pullX)) return false;
+        if (e.health === 0) {
+            // The body stops colliding at once; the sprite lingers for a short death animation.
+            e.disableBody(true, false); e.setTint(0xffd8c8).setTintMode(Phaser.TintModes.FILL);
+            e.scene.tweens.add({ targets: e, alpha: 0, scaleX: e.scaleX * 1.25, scaleY: e.scaleY * 0.6, angle: direction * (e.boss ? 8 : 25), y: e.y + (e.boss ? 40 : 20), duration: e.boss ? 1400 : 520, ease: 'Quad.In', onComplete: () => e.setVisible(false) });
+            this.onKill(e);
+        }
+        return true;
     }
     destroy(): void { this.collider.destroy(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); }
 }
