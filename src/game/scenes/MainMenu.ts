@@ -10,6 +10,7 @@ export class MainMenu extends Phaser.Scene {
     private previous = new Set<number>();
     constructor() { super(SceneKey.MainMenu); }
     create(): void {
+        this.startMusic();
         this.selected = 0; this.actions = []; this.labels = []; this.previous.clear(); this.leaving = false; makeTextures(this);
         const backdrop = this.add.image(640, 360, 'wreck').setDisplaySize(1320, 742).setTint(0x90b5c1);
         this.tweens.add({ targets: backdrop, x: 620, y: 350, duration: 14000, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
@@ -52,10 +53,19 @@ export class MainMenu extends Phaser.Scene {
         this.input.keyboard!.on('keydown-SPACE', () => this.actions[this.selected]?.());
     }
     private leaving = false;
+    private startMusic(): void {
+        if (!this.cache.audio.exists('menu-music')) return;
+        const playing = this.sound.getAllPlaying().find(s => s.key === 'menu-music');
+        if (playing) { (playing as Phaser.Sound.WebAudioSound).setVolume(0.55); return; }
+        // The track is pre-crossfaded (see scripts/make-menu-loop.sh) so native looping is seamless.
+        this.sound.play('menu-music', { loop: true, volume: 0.55 });
+    }
     private begin(progress: ReturnType<typeof newProgress>): void {
         if (this.leaving) return; this.leaving = true;
+        const music = this.sound.getAllPlaying().find(s => s.key === 'menu-music');
+        if (music) this.tweens.add({ targets: music, volume: 0.45, duration: 600 });
         this.cameras.main.fadeOut(600, 3, 10, 17);
-        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start(SceneKey.Game, { progress }));
+        this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => { this.scene.start(SceneKey.Game, { progress }); });
     }
     private button(label: string, action: () => void): void {
         const i = this.labels.length;
