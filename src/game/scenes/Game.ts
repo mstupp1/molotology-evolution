@@ -85,12 +85,22 @@ export class Game extends Phaser.Scene {
             this.sound.stopByKey('ambience');
         });
         this.scene.launch(SceneKey.Hud);
+        this.ensureMusic();
         this.sound.play('ambience', { loop: true, volume: 0.32 });
         this.time.delayedCall(900, () => {
             if (this.room.id === 'hull' && !this.progress.harpoon) this.notice('THE DESCENT BEGINS', 'A / D move · Space jump (hold for height) · J or click to slash · Shift dodge · E interact\nFollow the corridor east. Find the Armory. The wreck will not let you stay human.', 9000);
             else if (this.firstVisit && this.room.log) this.notice(this.room.name.toUpperCase(), this.room.log);
         });
         this.save();
+    }
+    private ensureMusic(): void {
+        if (!this.cache.audio.exists('menu-music')) return;
+        const playing = this.sound.getAllPlaying().find(s => s.key === 'menu-music');
+        if (playing) {
+            (playing as Phaser.Sound.WebAudioSound).setVolume(0.45);
+            return;
+        }
+        this.sound.play('menu-music', { loop: true, volume: 0.45 });
     }
     private notice(title: string, body: string, duration = 6500): void { this.game.events.emit(GameEvent.Notice, { title, body, duration } satisfies Notice); }
     private soundEffect(key: string, volume = 0.4, detune = 0): void { if (this.cache.audio.exists(key)) this.sound.play(key, { volume, detune: detune + Phaser.Math.Between(-60, 60) }); }

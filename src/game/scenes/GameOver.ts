@@ -26,6 +26,13 @@ export class GameOver extends Phaser.Scene {
         this.add.text(640, 550, 'Return to title', textStyle(15, '#8eadaa')).setOrigin(0.5).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.scene.start(SceneKey.MainMenu));
         this.add.text(640, 665, 'THE DEEP HAS ONLY BEGUN TO CHANGE YOU.', textStyle(10, '#758f92')).setOrigin(0.5);
         this.cameras.main.fadeIn(1200); this.time.delayedCall(400, () => { this.ready = true; });
+        this.ensureMusic();
+    }
+    private ensureMusic(): void {
+        if (!this.cache.audio.exists('menu-music')) return;
+        const playing = this.sound.getAllPlaying().find(s => s.key === 'menu-music');
+        if (playing) return;
+        this.sound.play('menu-music', { loop: true, volume: 0.45 });
     }
     update(): void {
         const pad = Array.from(navigator.getGamepads?.() ?? []).find(p => p?.connected);

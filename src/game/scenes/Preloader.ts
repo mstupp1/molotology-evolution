@@ -25,6 +25,7 @@ export class Preloader extends Phaser.Scene {
         for (const key of ['harpoon-weapon', 'harpoon-head', 'anchor-ring', 'field-record', 'coral-barrier', 'volcanic-vent', 'lava', 'tentacle', 'claw-sweep', 'abyss-far', 'wreck-ribs']) this.load.image(key, `${key}.png`);
         for (let i = 0; i < 8; i++) { this.load.image(`creature-${i}`, `creature-${i}.png`); this.load.image(`prop-${i}`, `prop-${i}.png`); }
         for (const key of ['key', 'harpoon-icon', 'molt-icon']) this.load.image(key, `${key}.png`);
+        this.load.audio('menu-music', ['main-menu.ogg', 'main-menu.m4a']);
         for (const key of ['ambience', 'slash', 'hit', 'harpoon', 'refill', 'molt', 'death', 'jump', 'land', 'dash', 'pickup', 'door', 'kill', 'hurt', 'roar']) this.load.audio(key, `${key}.wav`);
     }
     create(): void {
