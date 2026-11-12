@@ -3,6 +3,8 @@ import { COLORS, GAME_WIDTH, GAME_HEIGHT } from './constants';
 import { meetsRequirement, type Room, type Door, type Pickup, type RoomId, type Obstacle, type Rect } from './world';
 import type { Progress } from './model';
 import type { Player } from './systems/Player';
+import { Atmosphere, softTexture } from './atmosphere';
+import { Flicker, roomDarkness } from './lighting';
 
 export const textStyle = (size = 16, color = '#b9ccca'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Arial, sans-serif', fontSize: `${size}px`, color, resolution: 2 });
 export const serifStyle = (size = 32, color = '#e5dac0'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Georgia, serif', fontSize: `${size}px`, color, resolution: 2 });
@@ -111,13 +113,15 @@ export class RoomView {
     geometry: Rect[];
     breakables: { data: Obstacle; sprite: Phaser.Physics.Arcade.Image; label: Phaser.GameObjects.Text; hits: number }[] = [];
     readonly theme: RoomTheme;
-    private snow: { x: number; y: number; speed: number; size: number }[] = [];
-    private snowGraphics: Phaser.GameObjects.Graphics;
+    private atmosphere: Atmosphere;
     private darkness: Phaser.Textures.CanvasTexture;
     private overlay: Phaser.GameObjects.Image;
     private record: Phaser.GameObjects.Image;
     private tick = 0;
     private warnings: Phaser.GameObjects.Image[] = [];
+    /** Hanging lanterns are the room's fixed lights; each can gutter on its own. */
+    private lanterns: { x: number; y: number; lamp: Phaser.GameObjects.Image; halo: Phaser.GameObjects.Image; flicker: Flicker }[] = [];
+    private headlamp = new Flicker(Math.random, [10, 24], 0.2);
     constructor(private scene: Phaser.Scene, readonly room: Room, progress: Progress) {
         makeTextures(scene);
         const theme = this.theme = THEMES[room.id];
@@ -125,9 +129,12 @@ export class RoomView {
         scene.cameras.main.setBackgroundColor('#07131d');
         // Distinct image layers, from distant seabed to near iron ribs.
         const bgW = GAME_WIDTH + (room.width - GAME_WIDTH) * 0.12 + 40, bgH = bgW * 941 / 1672;
-        scene.add.image(-20, -20, 'abyss-far').setOrigin(0).setDisplaySize(GAME_WIDTH + room.width * 0.05, GAME_HEIGHT + 160).setScrollFactor(0.04, 0.06).setDepth(-24).setTint(room.volcanic ? 0xd3938e : theme.tint);
-        scene.add.image(-20, -20, 'wreck').setOrigin(0).setDisplaySize(bgW, Math.max(bgH, GAME_HEIGHT + 80)).setScrollFactor(0.12).setDepth(-22).setTint(theme.tint).setFlipX(theme.flip).setAlpha(0.38);
-        scene.add.tileSprite(0, -30, GAME_WIDTH + room.width * 0.3, 1100, 'wreck-ribs').setOrigin(0).setScrollFactor(0.28, 0.22).setDepth(-20).setTint(theme.tint).setAlpha(0.68).setTileScale(0.9);
+        // Aerial perspective: the farther a plane sits, the softer and foggier it gets. The playable plane is never softened.
+        scene.add.image(-20, -20, softTexture(scene, 'abyss-far', 4)).setOrigin(0).setDisplaySize(GAME_WIDTH + room.width * 0.05, GAME_HEIGHT + 160).setScrollFactor(0.04, 0.06).setDepth(-24).setTint(room.volcanic ? 0xd3938e : theme.tint).setAlpha(0.8);
+        const wreck = scene.add.image(-20, -20, softTexture(scene, 'wreck', 2)).setOrigin(0).setDisplaySize(bgW, Math.max(bgH, GAME_HEIGHT + 80)).setScrollFactor(0.12).setDepth(-22).setTint(theme.tint).setFlipX(theme.flip).setAlpha(0.38);
+        const ribs = scene.add.tileSprite(0, -30, GAME_WIDTH + room.width * 0.3, 1100, 'wreck-ribs').setOrigin(0).setScrollFactor(0.28, 0.22).setDepth(-20).setTint(theme.tint).setAlpha(0.68).setTileScale(0.9);
+        // Fog veils between the planes stack up with distance, so each band reads as farther than the last.
+        scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, theme.fog, 0.16).setScrollFactor(0).setDepth(-21);
         scene.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, theme.fog, 0.22).setScrollFactor(0).setDepth(-19);
         // Light shafts from the distant surface drift slowly.
         for (let i = 0; i < theme.rays; i++) {
@@ -135,9 +142,12 @@ export class RoomView {
                 .setDisplaySize(rnd.between(140, 260), rnd.between(620, 900)).setAngle(rnd.realInRange(-16, 6)).setTint(theme.rayColor).setAlpha(0).setBlendMode(Phaser.BlendModes.ADD).setDepth(-18);
             scene.tweens.add({ targets: ray, alpha: { from: rnd.realInRange(0.08, 0.14), to: rnd.realInRange(0.2, 0.32) }, angle: ray.angle + rnd.realInRange(2, 5), duration: rnd.between(3200, 6200), yoyo: true, repeat: -1, ease: 'Sine.InOut', delay: rnd.between(0, 1500) });
         }
+        const girders: Phaser.GameObjects.Image[] = [];
+        // Lantern flicker draws from its own seed so room layouts stay exactly as designed.
+        const flickerRnd = new Phaser.Math.RandomDataGenerator([`${room.id}:flicker`]);
         // Mid-ground silhouettes: distant girders and chains at half parallax.
         for (let x = rnd.between(-100, 200); x < GAME_WIDTH + (room.width - GAME_WIDTH) * 0.5; x += rnd.between(380, 620)) {
-            scene.add.image(x, rnd.between(-40, 80), 'prop-1').setOrigin(0.5, 0).setScrollFactor(0.5, 0.6).setDisplaySize(rnd.between(70, 110), rnd.between(760, 980)).setTint(0x0b1a22).setAlpha(0.78).setDepth(-15);
+            girders.push(scene.add.image(x, rnd.between(-40, 80), 'prop-1').setOrigin(0.5, 0).setScrollFactor(0.5, 0.6).setDisplaySize(rnd.between(70, 110), rnd.between(760, 980)).setTint(0x0b1a22).setAlpha(0.78).setDepth(-15));
         }
         const decor = scene.add.graphics().setDepth(-5);
         for (let i = 0, x = rnd.between(150, 300); x < room.width; i++, x += rnd.between(520, 760)) {
@@ -148,6 +158,7 @@ export class RoomView {
             scene.tweens.add({ targets: lantern, angle: { from: -4, to: 4 }, duration: rnd.between(2400, 3600), yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             const halo = scene.add.image(x + 100, 252, 'glow').setDisplaySize(240, 240).setTint(theme.accent).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.22).setDepth(-2);
             scene.tweens.add({ targets: halo, alpha: { from: 0.16, to: 0.3 }, duration: rnd.between(900, 1700), yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+            this.lanterns.push({ x: x + 100, y: 252, lamp: lantern, halo, flicker: new Flicker(() => flickerRnd.frac(), [3, 11]) });
         }
         // Hanging chains in the near background.
         for (let i = 0; i < theme.chains; i++) {
@@ -263,14 +274,14 @@ export class RoomView {
             lifespan: 6000, speedY: { min: -55, max: -25 }, speedX: { min: -6, max: 6 }, scale: { min: 0.25, max: 0.75 }, alpha: { start: 0.55, end: 0 }, frequency: 160, quantity: 1
         }).setDepth(19);
         scene.add.image(GAME_WIDTH / 2, GAME_HEIGHT, 'fog').setOrigin(0.5, 1).setDisplaySize(GAME_WIDTH, 240).setScrollFactor(0).setTint(theme.fog).setAlpha(0.55).setDepth(28);
-        this.snowGraphics = scene.add.graphics().setScrollFactor(0).setDepth(32);
-        for (let i = 0; i < 110; i++) this.snow.push({ x: Phaser.Math.Between(0, GAME_WIDTH), y: Phaser.Math.Between(0, GAME_HEIGHT), speed: Phaser.Math.Between(6, 22), size: i % 7 === 0 ? 2 : 1 });
+        this.atmosphere = new Atmosphere(scene, room, theme, room.heat?.length ? [wreck, ribs, ...girders] : []);
         const key = 'darkness'; if (scene.textures.exists(key)) scene.textures.remove(key);
         this.darkness = scene.textures.createCanvas(key, 640, 360)!;
         this.overlay = scene.add.image(0, 0, key).setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT).setScrollFactor(0).setDepth(30);
         // Foreground silhouettes pass in front of the action for depth, kept to the room edges and ceiling.
         for (let x = rnd.between(300, 700); x < room.width + 400; x += rnd.between(900, 1400)) {
-            scene.add.image(x, -20, 'prop-7').setOrigin(0.5, 0).setScrollFactor(1.25, 1).setDisplaySize(rnd.between(60, 90), rnd.between(200, 330)).setTint(0x03080c).setAlpha(0.92).setDepth(29);
+            // Out of focus, like a lens pulled to the diver's plane.
+            scene.add.image(x, -20, softTexture(scene, 'prop-7', 5)).setOrigin(0.5, 0).setScrollFactor(1.25, 1).setDisplaySize(rnd.between(60, 90), rnd.between(200, 330)).setTint(0x03080c).setAlpha(0.92).setDepth(29);
         }
     }
     breakObstacle(id: string): void {
@@ -279,18 +290,20 @@ export class RoomView {
         if (g >= 0) this.geometry.splice(g, 1);
         this.platforms.remove(b.sprite, true, true); b.label.destroy(); this.breakables.splice(i, 1);
     }
-    update(dt: number, p: Player, aimX: number, aimY: number, aiming: boolean, lights: { x: number; y: number; r?: number }[] = []): void {
+    /** `dread` (0 to 1) rises as oxygen runs out: the helmet lamp starts to fail. */
+    update(dt: number, p: Player, aimX: number, aimY: number, aiming: boolean, lights: { x: number; y: number; r?: number }[] = [], dread = 0): void {
         this.tick++; const camera = this.scene.cameras.main;
-        this.snowGraphics.clear();
-        for (const s of this.snow) {
-            s.y += dt * s.speed; s.x += Math.sin((this.tick + s.y) * 0.006) * dt * 5;
-            if (s.y > GAME_HEIGHT) s.y = -2;
-            this.snowGraphics.fillStyle(0xa3d8d7, s.size === 2 ? 0.25 : 0.13).fillRect(s.x, s.y, s.size, s.size);
+        const angle = aiming ? Math.atan2(aimY, aimX) : p.facing > 0 ? -0.15 : Math.PI + 0.15;
+        const power = dread > 0 ? this.headlamp.update(dt, dread) : 1;
+        for (const l of this.lanterns) {
+            const level = l.flicker.update(dt);
+            l.halo.setVisible(level > 0.5); l.lamp.setTint(level > 0.5 ? 0xffffff : 0x4a5258);
         }
+        this.atmosphere.update(dt, camera, { x: p.centerX - camera.scrollX, y: p.centerY - 28 - camera.scrollY, angle, reach: 540, spread: 0.37, halo: 200, power });
         if (this.tick % 2) return;
         const ctx = this.darkness.context;
         ctx.globalCompositeOperation = 'source-over'; ctx.clearRect(0, 0, 640, 360);
-        ctx.fillStyle = `rgba(0,6,15,${this.theme.darkness})`; ctx.fillRect(0, 0, 640, 360);
+        ctx.fillStyle = `rgba(0,6,15,${roomDarkness(this.theme)})`; ctx.fillRect(0, 0, 640, 360);
         // Vignette deepens the screen edges.
         const vignette = ctx.createRadialGradient(320, 180, 140, 320, 180, 380);
         vignette.addColorStop(0, 'rgba(0,4,10,0)'); vignette.addColorStop(1, 'rgba(0,4,10,0.55)');
@@ -298,11 +311,10 @@ export class RoomView {
         const x = (p.centerX - camera.scrollX) / 2, y = (p.centerY - 28 - camera.scrollY) / 2;
         ctx.globalCompositeOperation = 'destination-out';
         const halo = ctx.createRadialGradient(x, y, 10, x, y, 120);
-        halo.addColorStop(0, 'rgba(255,255,255,0.92)'); halo.addColorStop(1, 'rgba(255,255,255,0)');
+        halo.addColorStop(0, `rgba(255,255,255,${0.92 * Math.max(power, 0.45)})`); halo.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = halo; ctx.fillRect(x - 120, y - 120, 240, 240);
-        const angle = aiming ? Math.atan2(aimY, aimX) : p.facing > 0 ? -0.15 : Math.PI + 0.15;
         const cone = ctx.createRadialGradient(x, y, 0, x, y, 270);
-        cone.addColorStop(0, 'rgba(255,255,255,0.9)'); cone.addColorStop(0.7, 'rgba(255,255,255,0.6)'); cone.addColorStop(1, 'rgba(255,255,255,0)');
+        cone.addColorStop(0, `rgba(255,255,255,${0.9 * power})`); cone.addColorStop(0.7, `rgba(255,255,255,${0.6 * power})`); cone.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = cone; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, 270, angle - 0.37, angle + 0.37); ctx.closePath(); ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
         const warmth = ctx.createRadialGradient(x, y, 0, x, y, 270);
@@ -313,6 +325,7 @@ export class RoomView {
         const points: { x: number; y: number; r?: number }[] = [...this.room.anchors, ...lights, ...this.pickups.filter(q => q.sprite.active).map(q => ({ x: q.data.x, y: q.data.y, r: 90 })), { x: 1600, y: 820, r: 45 }];
         if (this.room.station) points.push({ x: this.room.station.x, y: this.room.station.y - 65, r: 85 });
         for (const d of this.room.doors) if (!d.hidden) points.push({ x: d.x, y: d.y - 60, r: 70 });
+        for (const l of this.lanterns) if (l.flicker.level > 0.5) points.push({ x: l.x, y: l.y, r: 95 });
         for (const point of points) {
             const lx = (point.x - camera.scrollX) / 2, ly = (point.y - camera.scrollY) / 2, r = point.r ?? 65;
             if (lx < -r || lx > 640 + r || ly < -r || ly > 360 + r) continue;
@@ -320,5 +333,5 @@ export class RoomView {
         }
         this.darkness.refresh();
     }
-    destroy(): void { this.overlay.destroy(); this.record.destroy(); this.platforms.clear(true, true); this.platforms.destroy(); }
+    destroy(): void { this.atmosphere.destroy(); this.overlay.destroy(); this.record.destroy(); this.platforms.clear(true, true); this.platforms.destroy(); }
 }
