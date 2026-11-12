@@ -3,6 +3,7 @@ import type { EnemyKind, EnemySpawn, Rect } from '../world';
 import { segmentRect } from '../world';
 import type { Player } from './Player';
 import { isSwimmer } from '../mechanics';
+import { AttackFx, type FxLight } from './AttackFx';
 
 export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; height: number; hp: number; damage: number; name: string }> = {
     urchin: { frame: 0, width: 74, height: 74, hp: 48, damage: 12, name: 'Spine Urchin' },
@@ -13,6 +14,8 @@ export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; heigh
     hermit: { frame: 5, width: 260, height: 240, hp: 540, damage: 24, name: 'THE BORROWED SHELL' },
     angler: { frame: 6, width: 390, height: 330, hp: 820, damage: 28, name: 'THE LAST LIGHT' }
 };
+/** Reach of the jellyfish discharge and the urchin's spine burst. */
+export const JELLY_RADIUS = 135, URCHIN_RADIUS = 90;
 export class Enemy extends Phaser.Physics.Arcade.Sprite {
     declare body: Phaser.Physics.Arcade.Body;
     health: number; maxHealth: number;
@@ -47,11 +50,13 @@ export class EnemySystem {
     list: Enemy[] = [];
     projectiles: Phaser.Physics.Arcade.Group;
     graphics: Phaser.GameObjects.Graphics;
+    readonly fx: AttackFx;
     private collider: Phaser.Physics.Arcade.Collider;
     private tentacles = new Map<Enemy, Phaser.GameObjects.Image>();
     constructor(scene: Phaser.Scene, platforms: Phaser.Physics.Arcade.StaticGroup, specs: EnemySpawn[], defeated: string[], private geometry: Rect[], private damagePlayer: (damage: number, fromX: number) => void, private onKill: (enemy: Enemy) => void) {
         this.projectiles = scene.physics.add.group({ defaultKey: 'spark', maxSize: 18, allowGravity: false });
         this.graphics = scene.add.graphics().setDepth(21);
+        this.fx = new AttackFx(scene);
         for (const spec of specs) {
             if (defeated.includes(spec.id)) continue;
             const enemy = isSwimmer(spec.kind) ? new SwimmingEnemy(scene, spec) : new GroundedEnemy(scene, spec);
@@ -68,12 +73,17 @@ export class EnemySystem {
             const shot = this.projectiles.get(e.x + ox, e.y + oy, 'spark') as Phaser.Physics.Arcade.Image | null;
             if (!shot) return;
             shot.enableBody(true, e.x + ox, e.y + oy, true, true).setDepth(22).setCircle(6).setScale(1.4).setTint(e.kind === 'angler' ? 0xc8b4ff : 0x8ce9fa).setBlendMode(Phaser.BlendModes.ADD);
-            shot.setData('life', 7); const v = new Phaser.Math.Vector2(player.centerX - e.x - ox, player.centerY - e.y - oy).normalize().rotate(i * 0.28).scale(e.kind === 'angler' ? 175 : 150);
+            shot.setData('life', 7).setData('electric', e.kind !== 'angler'); const v = new Phaser.Math.Vector2(player.centerX - e.x - ox, player.centerY - e.y - oy).normalize().rotate(i * 0.28).scale(e.kind === 'angler' ? 175 : 150);
             shot.setVelocity(v.x, v.y);
         }
     }
+    /** Bioluminescent creatures and live attack effects keep pools of light in the dark. */
+    lights(): FxLight[] {
+        const glow = this.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => ({ x: e.x + (e.kind === 'angler' ? (e.flipX ? 90 : -90) : 0), y: e.y - (e.kind === 'angler' ? 100 : 25), r: e.kind === 'angler' ? 150 : 70 }));
+        return [...glow, ...this.fx.lights()];
+    }
     update(dt: number, player: Player): void {
-        this.graphics.clear();
+        this.graphics.clear(); this.fx.begin(dt);
         for (const e of this.list) {
             this.tentacles.get(e)?.setVisible(false);
             if (!e.active || e.health <= 0) continue;
@@ -85,6 +95,7 @@ export class EnemySystem {
             if (e.kind === 'angler' && e.health < e.maxHealth / 2 && e.mode !== 'windup') e.setTint(0xd8c4ff);
             const enraged = e.kind === 'angler' && e.health < e.maxHealth / 2;
             if (e.mode === 'patrol') {
+                this.fx.idle(e);
                 if (e.kind === 'jellyfish') { e.setVelocity(Math.cos(e.elapsed * 0.6) * 45, Math.sin(e.elapsed * 0.9) * 35); }
                 else if (e.kind === 'shark' || e.kind === 'angler') {
                     e.setVelocity(Math.cos(e.elapsed * 0.45) * (e.kind === 'shark' ? 95 : 65), (e.home.y - e.y) * 0.65);
@@ -102,10 +113,11 @@ export class EnemySystem {
                     e.target.set(player.centerX, player.centerY); e.setVelocity(0, 0);
                 }
             } else if (e.mode === 'windup') {
-                e.setVelocityX(0); e.setTint(Math.sin(e.elapsed * 30) > 0 ? 0xff9d8b : 0xffffff);
-                this.graphics.lineStyle(2, e.kind === 'jellyfish' ? 0xbb9bff : 0xe99c7d, 0.5);
-                if (e.kind === 'jellyfish' || e.kind === 'urchin') this.graphics.strokeCircle(e.x, e.y, e.kind === 'jellyfish' ? 135 : 90);
-                else this.graphics.lineBetween(e.x, e.y, e.target.x, e.target.y);
+                e.setVelocityX(0); e.setTint(Math.sin(e.elapsed * 30) > 0 ? (e.kind === 'jellyfish' ? 0xc4d8ff : 0xff9d8b) : 0xffffff);
+                const charge = 1 - e.timer / (e.kind === 'urchin' ? 0.65 : enraged ? 0.55 : 0.85);
+                if (e.kind === 'jellyfish') this.fx.jellyWindup(e, JELLY_RADIUS, charge);
+                else if (e.kind === 'urchin') this.fx.urchinWindup(e, URCHIN_RADIUS, charge);
+                else this.fx.lungeWindup(e, e.target, charge, e.kind === 'angler' ? 0xc8b4ff : e.kind === 'octopus' ? 0xd88aa0 : 0xe99c7d);
                 if (e.timer <= 0) {
                     e.mode = 'strike'; e.timer = e.kind === 'octopus' ? 0.35 : e.kind === 'urchin' ? 1.3 : 0.6; e.cycles++;
                     if (['shark', 'angler', 'handcrab', 'hermit'].includes(e.kind)) {
@@ -117,11 +129,11 @@ export class EnemySystem {
                 }
             } else if (e.mode === 'strike') {
                 if (e.kind === 'jellyfish' || e.kind === 'urchin') {
-                    const r = e.kind === 'jellyfish' ? 135 : 90;
-                    this.graphics.fillStyle(e.kind === 'jellyfish' ? 0xb79afa : 0xe99c7d, 0.12).fillCircle(e.x, e.y, r);
-                    this.graphics.lineStyle(2, 0xc6b4ff, 0.85).strokeCircle(e.x, e.y, r);
-                    if (distance < r + 16) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
-                }
+                    const r = e.kind === 'jellyfish' ? JELLY_RADIUS : URCHIN_RADIUS, inside = distance < r + 16;
+                    if (e.kind === 'jellyfish') this.fx.jellyStrike(e, r, 1 - e.timer / 0.6, inside ? { x: player.centerX, y: player.centerY - 10 } : null);
+                    else this.fx.urchinStrike(e, r, 1 - e.timer / 1.3);
+                    if (inside) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
+                } else if (e.kind !== 'octopus') this.fx.lungeStrike(e, e.kind === 'angler' ? 0xb5a4eb : e.boss ? 0xff9a7a : 0x9fd8e8);
                 if (e.kind === 'octopus') {
                     const extension = Math.sin(Math.PI * Phaser.Math.Clamp((0.35 - e.timer) / 0.35, 0, 1));
                     const tx = e.x + (e.target.x - e.x) * extension, ty = e.y + (e.target.y - e.y) * extension;
@@ -149,9 +161,14 @@ export class EnemySystem {
             if (!p.active) return;
             const life = Number(p.getData('life')) - dt; p.setData('life', life);
             const body = p.body as Phaser.Physics.Arcade.Body;
-            if (life <= 0 || this.blocked(p.x - body.velocity.x * dt, p.y - body.velocity.y * dt, p.x, p.y)) { p.disableBody(true, true); return; }
-            if (Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height))) { this.damagePlayer(15, p.x); p.disableBody(true, true); }
+            if (life <= 0 || this.blocked(p.x - body.velocity.x * dt, p.y - body.velocity.y * dt, p.x, p.y)) { this.fizzle(p); return; }
+            if (Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(body.x, body.y, body.width, body.height))) { this.damagePlayer(15, p.x); this.fizzle(p); return; }
+            this.fx.projectile(p, p.getData('electric') === true);
         });
+        this.fx.end(dt);
+    }
+    private fizzle(p: Phaser.Physics.Arcade.Image): void {
+        this.fx.burst(p.x, p.y, p.getData('electric') ? 0x9fe8ff : 0xc8b4ff, 6, 180); this.fx.dropTrail(p); p.disableBody(true, true);
     }
     hit(e: Enemy, amount: number, direction: number, pullX?: number): boolean {
         if (!e.takeDamage(amount, direction, pullX)) return false;
@@ -163,5 +180,5 @@ export class EnemySystem {
         }
         return true;
     }
-    destroy(): void { this.collider.destroy(); this.tentacles.forEach(s => s.destroy()); this.tentacles.clear(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); }
+    destroy(): void { this.collider.destroy(); this.tentacles.forEach(s => s.destroy()); this.tentacles.clear(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); this.fx.destroy(); }
 }

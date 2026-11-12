@@ -22,7 +22,6 @@ export class Game extends Phaser.Scene {
     private harpoon: Harpoon;
     private combo: Combo;
     private store = browserSaveStore();
-    private effects: Phaser.Physics.Arcade.Group;
     private combatGraphics: Phaser.GameObjects.Graphics;
     private clawSweep: Phaser.GameObjects.Image;
     private paused = false;
@@ -70,7 +69,6 @@ export class Game extends Phaser.Scene {
         this.physics.add.collider(this.player, this.view.platforms);
         this.controls = new Controls(this); this.harpoon = new Harpoon(this, this.player);
         this.enemies = new EnemySystem(this, this.view.platforms, this.room.enemies, this.progress.defeated, this.view.geometry, (n, x) => this.hurt(n, x), e => this.killed(e));
-        this.effects = this.physics.add.group({ defaultKey: 'spark', maxSize: 64, allowGravity: false });
         this.combatGraphics = this.add.graphics().setDepth(24);
         this.clawSweep = this.add.image(0, 0, 'claw-sweep').setDepth(24).setVisible(false).setBlendMode(Phaser.BlendModes.ADD);
         this.cameras.main.setBounds(0, 0, this.room.width, this.room.height).startFollow(this.player, true, 0.1, 0.1, -this.lookahead, 60);
@@ -136,12 +134,7 @@ export class Game extends Phaser.Scene {
         } else if (command.type === 'mute') this.sound.mute = !this.sound.mute;
     }
     private burst(x: number, y: number, color: number, count = 9): void {
-        for (let i = 0; i < count; i++) {
-            const spark = this.effects.get(x, y, 'spark') as Phaser.Physics.Arcade.Image | null;
-            if (!spark) break;
-            spark.enableBody(true, x, y, true, true).setDepth(26).setTint(color).setAlpha(1).setScale(Phaser.Math.FloatBetween(0.2, 0.5));
-            spark.setVelocity(Phaser.Math.Between(-160, 160), Phaser.Math.Between(-180, 80)); spark.setData('life', 0.55);
-        }
+        this.enemies.fx.burst(x, y, color, count);
     }
     private hurt(damage: number, fromX: number): void {
         if (this.dead || this.player.dashTime > 0 || this.transitioning || !this.survival.hit(damage)) return;
@@ -313,10 +306,8 @@ export class Game extends Phaser.Scene {
         this.lastSound -= dt;
         if (this.survival.invulnerable > 0 && p.dashTime === 0) p.setAlpha(Math.sin(this.time.now / 40) > 0 ? 0.4 : 1); else p.setAlpha(1);
         p.animate(this.survival.oxygen < 30, air && this.survival.oxygen < 120 || this.refill, this.combo.active ? this.combo.elapsed / this.combo.durations[this.combo.index] : undefined);
-        const lights = this.enemies.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => ({ x: e.x + (e.kind === 'angler' ? (e.flipX ? 90 : -90) : 0), y: e.y - (e.kind === 'angler' ? 100 : 25), r: e.kind === 'angler' ? 150 : 70 }));
-        this.view.update(dt, p, input.aimX, input.aimY, input.aim, lights, this.survival.oxygen < 30 ? 1 - this.survival.oxygen / 30 : 0);
+        this.view.update(dt, p, input.aimX, input.aimY, input.aim, this.enemies.lights(), this.survival.oxygen < 30 ? 1 - this.survival.oxygen / 30 : 0);
         this.harpoon.draw(input.aim && this.progress.harpoon, input.aimX, input.aimY, this.room, this.progress.harpoon);
-        this.effects.getChildren().forEach(child => { const s = child as Phaser.Physics.Arcade.Image; if (s.active) { const life = Number(s.getData('life')) - dt; s.setData('life', life).setAlpha(Math.max(0, life / 0.55)); if (life <= 0) s.disableBody(true, true); } });
         if (this.survival.health <= 0 || p.y > this.room.height + 50) this.die();
         this.snapshotTimer -= dt; if (this.snapshotTimer <= 0) { this.snapshotTimer = 0.08; this.emitSnapshot(); }
     }
