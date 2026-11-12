@@ -313,7 +313,7 @@ export class Game extends Phaser.Scene {
         if (this.survival.invulnerable > 0 && p.dashTime === 0) p.setAlpha(Math.sin(this.time.now / 40) > 0 ? 0.4 : 1); else p.setAlpha(1);
         p.animate(this.survival.oxygen < 30, air && this.survival.oxygen < 120 || this.refill, this.combo.active ? this.combo.elapsed / this.combo.durations[this.combo.index] : undefined);
         const lights = this.enemies.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => ({ x: e.x + (e.kind === 'angler' ? (e.flipX ? 90 : -90) : 0), y: e.y - (e.kind === 'angler' ? 100 : 25), r: e.kind === 'angler' ? 150 : 70 }));
-        this.view.update(dt, p, input.aimX, input.aimY, input.aim, lights);
+        this.view.update(dt, p, input.aimX, input.aimY, input.aim, lights, this.survival.oxygen < 30 ? 1 - this.survival.oxygen / 30 : 0);
         this.harpoon.draw(input.aim && this.progress.harpoon, input.aimX, input.aimY, this.room, this.progress.harpoon);
         this.effects.getChildren().forEach(child => { const s = child as Phaser.Physics.Arcade.Image; if (s.active) { const life = Number(s.getData('life')) - dt; s.setData('life', life).setAlpha(Math.max(0, life / 0.55)); if (life <= 0) s.disableBody(true, true); } });
         if (this.survival.health <= 0 || p.y > this.room.height + 50) this.die();
