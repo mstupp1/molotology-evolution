@@ -6,6 +6,7 @@ import { isLostDiver, isSwimmer } from '../mechanics';
 import { COMBAT, hitDamage, lanternRect, tentacleTip } from '../combat';
 import { AttackFx, type FxLight } from './AttackFx';
 import { stranded as aboveWater } from '../water';
+import { chooseAttack, isSpecial, SPECIAL, specialActive, specialSegments, segmentHits, type EnemyAttack } from '../specialAttacks';
 
 export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; height: number; hp: number; damage: number; name: string }> = {
     urchin: { frame: 0, width: 74, height: 74, hp: 48, damage: 12, name: 'Spine Urchin' },
@@ -23,7 +24,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     health: number; maxHealth: number;
     mode: 'patrol' | 'windup' | 'strike' | 'recover' = 'patrol'; timer = 1.8; elapsed = 0;
     target = new Phaser.Math.Vector2(); home = new Phaser.Math.Vector2(); cycles = 0; stun = 0; flash = 0;
-    attack: 'lunge' | 'frenzy' | 'pulse' | 'leap' = 'lunge';
+    attack: EnemyAttack = 'lunge'; attackFacing = -1;
     duration = 0.85; passes = 0; pulseHit = false;
     /** A swimmer left above the waterline: it falls, flops and can only hurt on contact. */
     stranded = false; flop = 0.6; readonly baseScale: { x: number; y: number };
@@ -158,7 +159,7 @@ export class EnemySystem {
             }
             e.elapsed += dt; e.timer -= dt;
             const dx = player.centerX - e.x, dy = player.centerY - e.y, distance = Math.hypot(dx, dy);
-            e.setFlipX(dx > 0);
+            if (e.mode === 'patrol' || !isSpecial(e.attack) && e.kind !== 'octopus') e.setFlipX(dx > 0);
             if (e.flash > 0) { e.flash -= dt; if (e.flash <= 0) e.setTintMode(Phaser.TintModes.MULTIPLY).setTint(0xff9d8b); }
             if (e.stun > 0) { e.stun -= dt; continue; } else if (e.mode !== 'windup') e.clearTint();
             if (e.kind === 'angler' && e.health < e.maxHealth / 2 && e.mode !== 'windup') e.setTint(0xd8c4ff);
@@ -178,26 +179,31 @@ export class EnemySystem {
                 else e.setVelocityX(0);
                 const reach = e.kind === 'urchin' ? 260 : e.kind === 'octopus' ? 380 : e.kind === 'jellyfish' ? 380 : e.boss ? 850 : 650;
                 if (e.timer <= 0 && distance < reach && (isLostDiver(e.kind) || !this.blocked(e.x, e.y, player.centerX, player.centerY))) {
-                    e.attack = e.kind === 'angler' ? (['lunge', 'frenzy', 'pulse'] as const)[e.cycles % 3] : isLostDiver(e.kind) && e.cycles % 2 === 1 ? 'leap' : 'lunge';
-                    e.duration = e.attack === 'pulse' ? COMBAT.pulseCharge : e.kind === 'urchin' ? 0.65 : enraged ? 0.55 : 0.85;
+                    e.attack = chooseAttack(e.spec, e.cycles); e.attackFacing = dx >= 0 ? 1 : -1;
+                    e.duration = isSpecial(e.attack) ? SPECIAL[e.attack].charge : e.attack === 'pulse' ? COMBAT.pulseCharge : e.kind === 'urchin' ? 0.65 : enraged ? 0.55 : 0.85;
                     e.mode = 'windup'; e.timer = e.duration;
                     e.target.set(player.centerX, player.centerY); e.setVelocity(0, 0);
                 }
             } else if (e.mode === 'windup') {
                 e.setVelocityX(0); e.setTint(Math.sin(e.elapsed * 30) > 0 ? (e.kind === 'jellyfish' ? 0xc4d8ff : 0xff9d8b) : 0xffffff);
                 const charge = 1 - e.timer / e.duration;
-                if (e.attack === 'pulse') this.fx.lanternPulse(e, COMBAT.pulseRadius, charge, false);
-                else if (e.kind === 'jellyfish') this.fx.jellyWindup(e, JELLY_RADIUS, charge);
-                else if (e.kind === 'urchin') this.fx.urchinWindup(e, URCHIN_RADIUS, charge);
-                else this.fx.lungeWindup(e, e.target, charge, e.kind === 'angler' ? 0xc8b4ff : e.kind === 'octopus' ? 0xd88aa0 : 0xe99c7d);
+                // Track the player while drawing the aiming cue, then commit before extension.
+                if (e.kind === 'octopus' && charge < 0.6) { e.target.set(player.centerX, player.centerY); e.setFlipX(dx > 0); }
+                if (!isSpecial(e.attack)) {
+                    if (e.attack === 'pulse') this.fx.lanternPulse(e, COMBAT.pulseRadius, charge, false);
+                    else if (e.kind === 'jellyfish') this.fx.jellyWindup(e, JELLY_RADIUS, charge);
+                    else if (e.kind === 'urchin') this.fx.urchinWindup(e, URCHIN_RADIUS, charge);
+                    else this.fx.lungeWindup(e, e.target, charge, e.kind === 'angler' ? 0xc8b4ff : e.kind === 'octopus' ? 0xd88aa0 : 0xe99c7d);
+                }
                 if (e.timer <= 0) {
-                    e.mode = 'strike'; e.timer = e.kind === 'octopus' ? 0.35 : e.kind === 'urchin' ? 1.3 : e.attack === 'pulse' ? 0.35 : e.attack === 'leap' ? COMBAT.diverFlight + 0.1 : 0.6; e.cycles++;
+                    e.mode = 'strike'; e.timer = isSpecial(e.attack) ? SPECIAL[e.attack].strike : e.kind === 'octopus' ? 0.35 : e.kind === 'urchin' ? 1.3 : e.attack === 'pulse' ? 0.35 : e.attack === 'leap' ? COMBAT.diverFlight + 0.1 : 0.6; e.cycles++;
                     e.duration = e.timer; e.pulseHit = false;
                     if (e.attack === 'frenzy') { e.passes = 0; this.frenzyPass(e, player); }
                     else if (e.attack === 'leap') {
                         const flight = COMBAT.diverFlight;
                         e.setVelocity(Phaser.Math.Clamp((e.target.x - e.x) / flight, -650, 650), (e.target.y - e.y - 0.5 * 430 * flight * flight) / flight);
-                    } else if (e.attack !== 'pulse' && ['shark', 'angler', 'handcrab', 'hermit'].includes(e.kind)) {
+                    } else if (e.attack === 'chomp') e.setVelocityX(e.attackFacing * 150);
+                    else if (!isSpecial(e.attack) && e.attack !== 'pulse' && ['shark', 'angler', 'handcrab', 'hermit'].includes(e.kind)) {
                         const v = new Phaser.Math.Vector2(e.target.x - e.x, ['shark', 'angler'].includes(e.kind) ? e.target.y - e.y : 0).normalize();
                         e.setVelocity(v.x * (enraged ? 570 : e.boss ? 420 : 540), v.y * 340);
                     }
@@ -205,6 +211,14 @@ export class EnemySystem {
                     if (e.kind === 'angler' && (enraged || e.cycles % 2 === 0)) this.shoot(e, player, enraged ? 1 : 0);
                 }
             } else if (e.mode === 'strike') {
+                if (isSpecial(e.attack)) {
+                    const progress = 1 - e.timer / e.duration;
+                    if (e.attack !== 'chomp' || progress > 0.3) e.setVelocityX(0);
+                    const area = { x: player.body.x, y: player.body.y, w: player.body.width, h: player.body.height };
+                    if (!e.pulseHit && specialActive(e.attack, progress) && !(e.attack === 'spew' && player.evolution === 2) && specialSegments(e.attack, e, e.target, e.attackFacing, progress, this.geometry).some(segment => segmentHits(segment, area))) {
+                        e.pulseHit = true; this.damagePlayer(SPECIAL[e.attack].damage, e.x);
+                    }
+                }
                 if (e.attack === 'frenzy' && e.timer <= 0 && e.passes < 4) this.frenzyPass(e, player);
                 if (e.attack === 'pulse') {
                     e.setVelocity(0, 0); this.fx.lanternPulse(e, COMBAT.pulseRadius, 1 - e.timer / e.duration, true);
@@ -218,14 +232,14 @@ export class EnemySystem {
                     if (e.kind === 'jellyfish') this.fx.jellyStrike(e, r, 1 - e.timer / 0.6, inside ? { x: player.centerX, y: player.centerY - 10 } : null);
                     else this.fx.urchinStrike(e, r, 1 - e.timer / 1.3);
                     if (inside) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
-                } else if (e.kind !== 'octopus' && e.attack !== 'pulse') this.fx.lungeStrike(e, e.kind === 'angler' ? 0xb5a4eb : e.boss ? 0xff9a7a : 0x9fd8e8);
+                } else if (e.kind !== 'octopus' && e.attack !== 'pulse' && !isSpecial(e.attack)) this.fx.lungeStrike(e, e.kind === 'angler' ? 0xb5a4eb : e.boss ? 0xff9a7a : 0x9fd8e8);
                 if (e.kind === 'octopus') {
                     const { x: tx, y: ty } = tentacleTip(e.x, e.y, e.target.x, e.target.y, (0.35 - e.timer) / 0.35);
-                    this.tentacles.get(e)?.setVisible(true).setPosition(e.x, e.y).setDisplaySize(Math.max(15, Math.hypot(tx - e.x, ty - e.y)), 35).setRotation(Math.atan2(ty - e.y, tx - e.x) + Math.PI);
+                    this.tentacles.get(e)?.setVisible(true).setPosition(e.x, e.y).setDisplaySize(Math.max(15, Math.hypot(tx - e.x, ty - e.y)), 35).setRotation(Math.atan2(e.target.y - e.y, e.target.x - e.x) + Math.PI);
                     const hit = Phaser.Geom.Intersects.LineToRectangle(new Phaser.Geom.Line(e.x, e.y, tx, ty), new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height));
                     if (hit) this.damagePlayer(18, e.x);
                 }
-                if (e.timer <= 0 || !isLostDiver(e.kind) && e.kind !== 'angler' && (e.body.blocked.left || e.body.blocked.right)) { e.mode = 'recover'; e.timer = e.kind === 'angler' ? (e.attack === 'pulse' ? 1.5 : enraged ? 1.3 : 1.7) : e.kind === 'shark' ? COMBAT.sharkRecovery : e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
+                if (e.timer <= 0 || !isLostDiver(e.kind) && e.kind !== 'angler' && (e.body.blocked.left || e.body.blocked.right)) { e.mode = 'recover'; e.timer = e.kind === 'angler' ? (e.attack === 'pulse' ? 1.5 : enraged ? 1.3 : 1.7) : e.kind === 'shark' ? COMBAT.sharkRecovery : isSpecial(e.attack) ? SPECIAL[e.attack].recover : e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
             } else {
                 // After a lunge the Angler hangs open-jawed and drifts back up: a readable punish window.
                 if (e.kind === 'angler') { e.setVelocity(0, (e.home.y - e.y) * 0.9); if (Math.sin(e.elapsed * 12) > 0) e.setTint(0xffe0a0); }
@@ -233,7 +247,8 @@ export class EnemySystem {
             }
             const animation = `enemy-${e.spec.visual ?? e.kind}-${e.mode === 'patrol' ? 'move' : e.mode}`;
             if (e.anims.currentAnim?.key !== animation) e.play(animation);
-            const harmless = e.kind === 'urchin' || e.kind === 'angler' && e.mode === 'recover';
+            if (isSpecial(e.attack) && e.mode !== 'patrol') this.fx.special(e, e.attack, e.mode !== 'recover' ? 1 - e.timer / e.duration : 1 - e.timer / SPECIAL[e.attack].recover, this.geometry);
+            const harmless = isSpecial(e.attack) && e.mode !== 'patrol' || e.kind === 'urchin' || e.kind === 'angler' && e.mode === 'recover';
             if (!harmless && Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height))) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
             this.healthBar(e);
         }
@@ -269,6 +284,7 @@ export class EnemySystem {
         if (!e.takeDamage(damage, direction, pullX)) return null;
         if (weak) { const r = e.weakSpot; if (r) this.fx.burst(r.x + r.w / 2, r.y + r.h / 2, 0xc4ffff, 18, 240); }
         if (e.health === 0) {
+            this.tentacles.get(e)?.setVisible(false); this.fx.removeEnemy(e);
             if (e.kind === 'angler') this.projectiles.getChildren().forEach(child => {
                 const shot = child as Phaser.Physics.Arcade.Image;
                 this.fx.dropTrail(shot); shot.disableBody(true, true);

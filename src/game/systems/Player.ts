@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import type { Evolution, PlayerState } from '../constants';
-import { playerAnimation, PLAYER_TEXTURES, type PlayerAnimation } from '../animation';
+import { LEDGE_HANDS, playerAnimation, PLAYER_TEXTURES, type PlayerAnimation } from '../animation';
 import { abilities } from '../mechanics';
 import type { Rect } from '../world';
 import type { InputFrame } from './Controls';
@@ -14,7 +14,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     set evolution(value: Evolution) { if (this.form !== value) { this.form = value; this.detach(); this.standingBody(); } }
     dashTime = 0; dashCooldown = 0; hurtTime = 0;
     private coyote = 0; private jumpBuffer = 0; private elapsed = 0;
-    private ledge: { x: number; y: number } | null = null;
+    private ledge: { x: number; y: number; edge: number } | null = null;
+    private mantleOffset = { x: 0, y: 0 };
     private ledgeTime = 0; private mantleTime = 0; private compact = false;
     surface: Surface | null = null;
     private attachment: Rect | null = null;
@@ -134,7 +135,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         if (this.ledge) {
             this.ledgeTime += dt; this.state = 'LedgeGrab'; this.body.allowGravity = false; this.setAcceleration(0, 0).setVelocity(0, 0);
             if (this.ledgeTime > 0.2 && (input.jump || input.y < -0.3)) {
-                const ledge = this.ledge; this.ledge = null; this.state = 'Mantle'; this.mantleTime = 0.38; this.body.moves = false;
+                const ledge = this.ledge; this.mantleOffset = { x: this.visual.x - this.centerX, y: this.visual.y - this.feet }; this.ledge = null; this.state = 'Mantle'; this.mantleTime = 0.38; this.body.moves = false;
                 this.scene.tweens.add({ targets: this, x: ledge.x, y: ledge.y - 70, duration: 350, ease: 'Sine.InOut', onComplete: () => this.resetAt(ledge.x, ledge.y) });
             } else if (input.y > 0.3) { this.ledge = null; this.reattachDelay = 0.3; this.body.allowGravity = true; this.setVelocityY(90); }
             return;
@@ -174,7 +175,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
                 if (Math.abs(this.centerX + this.facing * 25 - edge) > 19) continue;
                 const x = edge + this.facing * 28;
                 if (platforms.some(q => q !== r && x + 18 > q.x && x - 18 < q.x + q.w && r.y > q.y && r.y - 86 < q.y + q.h)) continue;
-                this.ledge = { x, y: r.y }; this.ledgeTime = 0; this.setAcceleration(0, 0).setVelocity(0, 0); break;
+                this.ledge = { x, y: r.y, edge }; this.ledgeTime = 0; this.setAcceleration(0, 0).setVelocity(0, 0); break;
             }
         }
     }
@@ -203,10 +204,14 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         else if (this.surface === 'ceiling') this.visual.setPosition(this.centerX, this.body.top).setAngle(180).setFlipX(this.facing > 0);
         else this.visual.setPosition(this.centerX, this.feet).setAngle(state === 'Death' ? -80 * this.facing : state === 'Hurt' ? -8 * this.facing : 0);
         if (state === 'LedgeGrab' && this.ledge) {
-            // Each raised-arm pose has a different helmet baseline. Keep the head at the lip.
-            const helmets: Record<number, number> = this.form === 0 ? { 12: 70, 13: 76, 14: 79, 15: 83 } : { 12: 72, 13: 75, 14: 78, 15: 82 };
-            this.visual.y = this.ledge.y + (150 - (helmets[Number(this.visual.frame.name)] ?? 78));
-        }
+            const [hx, hy] = LEDGE_HANDS[this.form]?.[Number(this.visual.frame.name)] ?? [96, 60];
+            this.visual.x = this.ledge.edge - (hx - this.visual.displayOriginX) * this.visual.scaleX * (this.visual.flipX ? -1 : 1);
+            this.visual.y = this.ledge.y - (hy - this.visual.displayOriginY) * this.visual.scaleY;
+        } else if (state === 'Mantle') {
+            const k = Phaser.Math.Clamp(this.mantleTime / 0.38, 0, 1);
+            this.visual.x += this.mantleOffset.x * k * k;
+            this.visual.y += this.mantleOffset.y * k * k;
+        } else this.mantleOffset = { x: 0, y: 0 };
         if (replenishing) this.visual.setTint(0xa2ffe4); else if (oxygenLow && Math.sin(this.elapsed * 7) > 0.4) this.visual.setTint(0xe49b9a); else this.visual.clearTint();
     }
 }

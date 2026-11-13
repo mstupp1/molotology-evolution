@@ -152,11 +152,11 @@ test('Angler rotates attacks, makes four bounded frenzy passes and releases one 
 
 test('all four unique lost divers leap through internal platforms and return to the floor', async ({ page }) => {
     await start(page); const textures = [];
-    for (const room of ['handcrab', 'hermit', 'rigging', 'caldera']) {
+    for (const room of ['handcrab', 'hermit', 'rigging', 'molt']) {
         await fixture(page, room);
         textures.push(await page.evaluate(() => {
             const s = window.__MOLOTOLOGY__.scene.keys.Game, e = s.enemies.list.find(e => e.boss);
-            e.setPosition(2100, 770); e.body.updateFromGameObject(); e.stun = 0; e.timer = 0; e.cycles = 1;
+            e.setPosition(2100, 770); e.body.updateFromGameObject(); e.stun = 0; e.timer = 0; e.cycles = e.spec.visual === 'rigging-diver' ? 0 : 1;
             s.player.resetAt(1430, 500); s.player.body.allowGravity = false;
             window.__leap = []; s.events.on('postupdate', () => { if (e.attack === 'leap' && e.mode === 'strike') window.__leap.push({ y: e.y, x: e.x, blocked: e.body.blocked.up }); });
             return e.texture.key;
@@ -221,11 +221,11 @@ test('lantern hitboxes follow every animation frame, and harpoons use the same w
 
 test('early lava can be jumped over, hurts early forms, and is harmless to the final shell', async ({ page }) => {
     await start(page); await fixture(page, 'cargo', 0); await place(page, 1720, 850);
-    const lavaBefore = await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.children.list.filter(o => o.type === 'TileSprite' && o.texture.key === 'lava').map(o => o.tilePositionX));
+    const lavaBefore = await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.view.lava.time);
     await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.invulnerable = 0);
     await page.keyboard.down('d'); await page.keyboard.down('w'); await advance(page, 100); await page.keyboard.up('d'); await page.keyboard.up('w');
     expect((await read(page)).health).toBe(100); expect((await read(page)).x).toBeGreaterThan(2000);
-    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.children.list.filter(o => o.type === 'TileSprite' && o.texture.key === 'lava').map(o => o.tilePositionX))).not.toEqual(lavaBefore);
+    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.view.lava.time)).not.toEqual(lavaBefore);
     for (const form of [0, 1, 2]) {
         await fixture(page, 'armory', form); await place(page, 1850, 850);
         await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.invulnerable = 0); await advance(page, 12);

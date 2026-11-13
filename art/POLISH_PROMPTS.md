@@ -1,0 +1,11 @@
+# Articulated attack parts
+
+Generated with the built-in image_gen tool, transparent backgrounds enabled. Existing packed Handcrab and Hermit spritesheets were supplied as style/material references, respectively. Original alpha-preserving outputs are in `art/source/special-jaw.png` and `art/source/special-pincer.png`. `scripts/prepare_polish_assets.py` trims transparent padding and packs each to 256px width for `public/assets/`.
+
+## Upper jaw
+
+Create a SINGLE isolated upper jaw component for the fang-bearing mutated diver in the supplied reference sprite sheet. Reference is style and material guidance only, not the output layout. Detailed gritty pixel art: mottled coral-red armored gum, dark burgundy underside and seven long irregular ivory fangs pointing DOWN. Long narrow organic jaw, horizontal, tapered rounded LEFT tip, thicker rounded RIGHT hinge. It will hinge on its right end and rotate for a huge chomping attack in a side-view game. Entire silhouette organic with transparent space around teeth and around outer outline, no rectangular cut edge. Jaw only, no head, no body, no helmet, no lower jaw, no text, no effects, no shadow or background. Upper jaw spans 80% image width and only about 30% image height, with generous empty transparent padding. True transparent background. Pixel texture and restrained dirty coral/brass/bone palette from reference.
+
+## Pincer
+
+Create ONE isolated crab pincer limb component for the mutated hermit diver in the reference. Reference sprite sheet is style/material guidance only, not output layout. Detailed gritty pixel art, mottled rusty coral-red chitin, dark burgundy creases, ash barnacles. Side view single long articulated foreclaw: rounded thick arm hinge at RIGHT and menacing tapered curved OPEN pincer tips facing LEFT, organic silhouette with open transparent gap between the two sharp fingers. Whole component horizontally oriented, 80% image width about 40% image height, centered with generous transparent padding. Will rotate about the right hinge as a game sprite component during a giant scissor attack. Single claw only, no body, no shell, no helmet, no hand, no text, no effects, no cast shadow, no background. Match reference's gritty restrained dirty coral palette and visible sharp pixel texture. Truly transparent background.

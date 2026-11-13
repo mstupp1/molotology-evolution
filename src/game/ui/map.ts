@@ -1,8 +1,10 @@
 import type { GameSnapshot } from '../constants';
 import { ROOMS, ROOM_IDS, meetsRequirement, type RoomId } from '../world';
 
+import { SECRET_ROOMS, unfinishedSecret } from '../secrets';
+
 const NS = 'http://www.w3.org/2000/svg';
-const HIDDEN = new Set<RoomId>(['handcrab', 'hermit']);
+const HIDDEN = new Set<RoomId>(SECRET_ROOMS);
 const GOLD = '#c9a668', GOLD_HI = '#f0d9a6', TEAL = '#72bcae', BLOOD = '#c4554a';
 
 export function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, parent?: Element): SVGElementTagNameMap[K] {
@@ -44,6 +46,11 @@ export function drawMap(root: SVGSVGElement, data: GameSnapshot, sx: number, sy:
             const cx = p.x + (full ? 13 : 6), cy = p.y + (full ? 13 : 6), rad = full ? 5 : 2.6;
             svg('circle', { cx, cy, r: rad, fill: data.checkpoint === id ? TEAL : 'none', stroke: TEAL, 'stroke-width': full ? 1.5 : 1.2 }, rooms);
         }
+        if (known && unfinishedSecret(id, data.defeated)) {
+            const marker = svg('g', { 'data-secret-room': id, 'aria-label': 'Unfinished secret' }, rooms);
+            secretIcon(marker, p.x + w - (full ? 13 : 5), p.y + (full ? 13 : 5), full ? 6 : 3);
+            svg('title', {}, marker).textContent = 'Unfinished secret';
+        }
         if (current) {
             const cx = p.x + Math.max(5, Math.min(w - 5, data.position.x * w)), cy = p.y + Math.max(5, Math.min(h - 5, data.position.y * h));
             svg('circle', { cx, cy, r: full ? 9 : 5, fill: GOLD_HI, opacity: 0.25 }, rooms);
@@ -56,11 +63,17 @@ export function drawMap(root: SVGSVGElement, data: GameSnapshot, sx: number, sy:
     }
 }
 
-export function legendIcon(kind: 'you' | 'station' | 'sealed' | 'room'): SVGSVGElement {
+export function legendIcon(kind: 'you' | 'station' | 'sealed' | 'room' | 'secret'): SVGSVGElement {
     const root = svg('svg', { width: 18, height: 18, viewBox: '0 0 18 18' });
     if (kind === 'you') { svg('circle', { cx: 9, cy: 9, r: 8, fill: GOLD_HI, opacity: 0.25 }, root); svg('circle', { cx: 9, cy: 9, r: 4, fill: GOLD_HI }, root); }
     if (kind === 'station') svg('circle', { cx: 9, cy: 9, r: 5, fill: 'none', stroke: TEAL, 'stroke-width': 1.5 }, root);
     if (kind === 'sealed') svg('rect', { x: 5, y: 5, width: 8, height: 8, fill: BLOOD, transform: 'rotate(45 9 9)' }, root);
     if (kind === 'room') svg('rect', { x: 1, y: 3, width: 16, height: 12, fill: 'rgba(10,12,14,0.6)', stroke: '#3a3d3b', 'stroke-dasharray': '3 3' }, root);
+    if (kind === 'secret') secretIcon(root, 9, 9, 6);
     return root;
+}
+
+function secretIcon(parent: Element, x: number, y: number, r: number): void {
+    svg('path', { d: `M ${x} ${y-r} L ${x+r} ${y} L ${x} ${y+r} L ${x-r} ${y} Z`, fill: '#151b25', stroke: '#c6b4ef', 'stroke-width': 1.2 }, parent);
+    svg('circle', { cx: x, cy: y, r: Math.max(1, r * 0.25), fill: '#e7dbff' }, parent);
 }
