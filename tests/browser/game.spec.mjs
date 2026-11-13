@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { crawlExit } from './update-helpers.mjs';
+test.setTimeout(90000);
 
 async function start(page) {
     await page.goto('/');
@@ -9,7 +11,8 @@ async function start(page) {
 }
 async function state(page) {
     return page.evaluate(() => {
-        const g = window.__MOLOTOLOGY__, s = g.scene.keys.Game, p = s.player;
+        const g = window.__MOLOTOLOGY__, s = g?.scene.keys.Game, p = s?.player;
+        if (!s?.room || !p?.body) return { room: null, health: null };
         return { room: s.room.id, x: p.x, y: p.y, feet: p.feet, bodyHeight: p.body.height, health: s.survival.health, oxygen: s.survival.oxygen, harpoon: s.progress.harpoon, evolution: s.progress.evolution, key: s.progress.key, state: p.state, paused: g.scene.isPaused('Game'), completed: s.progress.completed, defeated: s.progress.defeated, fps: g.loop.actualFps };
     });
 }
@@ -24,7 +27,10 @@ async function fixture(page, room, upgrades = {}) {
 }
 async function place(page, x, feet) { await page.evaluate(({ x, feet }) => window.__MOLOTOLOGY__.scene.keys.Game.player.resetAt(x, feet), { x, feet }); await page.waitForTimeout(60); }
 async function pickup(page, room, x, feet, upgrades = {}) {
-    await fixture(page, room, upgrades); await place(page, x, feet); await page.keyboard.press('e'); await page.waitForTimeout(120);
+    await fixture(page, room, upgrades); await place(page, x, feet);
+    const before = await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.progress.collected.length);
+    await page.keyboard.press('e');
+    await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.progress.collected.length), { timeout: 7000 }).toBeGreaterThan(before);
 }
 async function travel(page, destination, blocked = false) {
     await page.evaluate(destination => { const s = window.__MOLOTOLOGY__.scene.keys.Game, d = s.room.doors.find(d => d.to === destination); s.player.resetAt(d.x, d.y + 12); }, destination);
@@ -55,10 +61,10 @@ test('station refill, local Continue and death preserve discovered abilities', a
     expect((await state(page)).harpoon).toBe(true);
     await fixture(page, 'armory'); await place(page, 500, 850);
     await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game; s.survival.health = 20; s.survival.oxygen = 5; });
-    await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).health).toBe(100);
-    expect((await state(page)).health).toBe(100); await expect.poll(async () => (await state(page)).oxygen, { timeout: 4000 }).toBeGreaterThan(80);
+    await page.keyboard.press('e'); await page.waitForTimeout(300);
+    expect((await state(page)).health).toBe(20); await expect.poll(async () => (await state(page)).oxygen, { timeout: 4000 }).toBeGreaterThan(80);
     await page.reload(); await page.waitForFunction(() => window.__MOLOTOLOGY__?.scene.isActive('MainMenu'));
-    await page.keyboard.press('Enter'); await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.isActive('Game'));
+    await page.keyboard.press('Enter'); await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.isActive('Game') && window.__MOLOTOLOGY__.scene.isActive('Hud'));
     expect((await state(page)).room).toBe('armory'); expect((await state(page)).harpoon).toBe(true);
     await page.evaluate(() => { window.__MOLOTOLOGY__.scene.keys.Game.survival.health = 0; });
     await expect.poll(async () => (await state(page)).health, {timeout:7000}).toBe(100); expect((await state(page)).harpoon).toBe(true);
@@ -102,7 +108,7 @@ test('Harpoon charge: a tap fires a weak shot, releasing in the flash fires a pe
     expect(errors).toEqual([]);
 });
 
-test('first molt, pressure gate, second molt, physical Dash duct and chapel key', async ({ page }) => {
+test('first molt, pressure gate, second molt, ceiling passage and chapel key', async ({ page }) => {
     await start(page); await fixture(page, 'infirmary', { harpoon: true });
     await travel(page, 'pressure', true); expect((await state(page)).room).toBe('infirmary');
     await place(page, 2050, 710); await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).evolution).toBe(1);
@@ -110,9 +116,10 @@ test('first molt, pressure gate, second molt, physical Dash duct and chapel key'
     await travel(page, 'molt'); expect((await state(page)).room).toBe('molt');
     await place(page, 2100, 710); await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).evolution).toBe(2);
     await travel(page, 'ballast'); expect((await state(page)).room).toBe('ballast');
-    await place(page, 1230, 850); await page.keyboard.down('d'); await page.keyboard.press('Shift'); await expect.poll(async () => (await state(page)).x, {timeout:7000}).toBeGreaterThan(1720); await page.keyboard.up('d'); await page.waitForTimeout(100);
-    const escaped = await state(page); expect(escaped.x).toBeGreaterThan(1700); expect(escaped.bodyHeight).toBe(44);
-    await travel(page, 'quarters'); expect((await state(page)).room).toBe('quarters');
+    await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game; s.survival.invulnerable = 1000; s.enemies.list.forEach(e => e.stun = 1000); });
+    await crawlExit(page, 'ballast');
+    await page.evaluate(() => window.__MOLOTOLOGY__.loop.wake());
+    expect((await state(page)).room).toBe('quarters');
     await place(page, 2640, 620); await page.keyboard.press('e'); await expect.poll(async () => (await state(page)).key).toBe(true);
     await travel(page, 'chapel'); expect((await state(page)).room).toBe('chapel');
 });
@@ -165,7 +172,7 @@ test('v2: vital pearls raise maximum health, enemies die with an animation, and 
     await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.maxHealth)).toBe(120);
     expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.health)).toBe(120);
     await fixture(page, 'cargo');
-    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.view.pickups.length)).toBe(0);
+    expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.view.pickups.map(p => p.data.id))).toEqual(['pearl:cargo-thermal']);
     expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.survival.maxHealth)).toBe(120);
     // A killing blow disables collision at once, plays a fade, and the simulation resumes after hitstop.
     await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game, e = s.enemies.list.find(e => e.kind === 'urchin'); e.health = 1; e.timer = 10; s.player.resetAt(e.x - 80, 850); s.player.facing = 1; });

@@ -11,9 +11,9 @@ type ControlRow = [keys: string[], action: string];
 type ControlGroup = [title: string, rows: ControlRow[]];
 
 const KEYBOARD_CONTROLS: ControlGroup[][] = [
-    [['Movement', [[['A', 'D'], 'Move'], [['Space'], 'Jump, hold for height'], [['Shift'], 'Dodge · Dash']]],
+    [['Movement', [[['A', 'D'], 'Move'], [['Space', 'W'], 'Jump, hold for height'], [['Shift', 'S'], 'Dodge · Dash']]],
      ['World', [[['E'], 'Interact'], [['M', 'Tab'], 'Map'], [['Esc'], 'Pause']]]],
-    [['Combat', [[['J', 'Click'], 'Slash'], [['Right Mouse'], 'Aim the harpoon'], [['K'], 'Aim with keys']]],
+    [['Combat', [[['J', 'Click'], 'Slash'], [['Right Mouse'], 'Charge ranged weapon'], [['K'], 'Aim with arrows']]],
      ['Crab form', [[['W', 'S'], 'Climb walls'], [['A', 'D'], 'Scuttle ceilings'], [['Space'], 'Drop or let go']]]]
 ];
 const GAMEPAD_CONTROLS: ControlGroup[][] = [
@@ -186,7 +186,7 @@ export class Hud extends Phaser.Scene {
 
         setText(this.formName, EVOLUTION_NAMES[data.evolution]);
         const kit = [data.evolution >= 1 ? 'Claw' : 'Knife', data.evolution >= 1 ? 'Dash' : 'Dodge'];
-        if (data.evolution === 2) kit.push('Scuttle'); if (data.harpoon) kit.push('Harpoon'); if (data.key) kit.push('Chapel Key');
+        if (data.evolution === 2) kit.push('Scuttle'); if (data.rangedWeapon !== 'none') kit.push(data.rangedWeapon === 'bubble' ? 'Bubble Shot' : 'Harpoon'); if (data.key) kit.push('Chapel Key');
         setText(this.formKit, kit.join('  ·  '));
         setText(this.objective, data.objective);
 
@@ -206,7 +206,7 @@ export class Hud extends Phaser.Scene {
             this.controlsStrip.replaceChildren();
             const strip: ControlRow[] = data.gamepad
                 ? [[['L Stick'], 'Move'], [['A'], 'Jump'], [['X'], 'Slash'], [['B'], 'Dodge'], [['Y'], 'Interact']]
-                : [[['A', 'D'], 'Move'], [['Space'], 'Jump'], [['J'], 'Slash'], [['Shift'], 'Dodge'], [['E'], 'Interact']];
+                : [[['A', 'D'], 'Move'], [['Space', 'W'], 'Jump'], [['J'], 'Slash'], [['Shift', 'S'], 'Dodge'], [['E'], 'Interact']];
             for (const [keys, action] of strip) keyHint(keys, action, this.controlsStrip);
         }
         toggle(this.controlsStrip, 'show', data.room === 'hull' && !data.harpoon && !data.paused && !data.boss);
@@ -297,7 +297,7 @@ export class Hud extends Phaser.Scene {
                     }
                 }
             }
-            el('div', '', 'The harpoon only bites on golden anchor rings.', foot).style.fontStyle = 'italic';
+            el('div', '', data?.rangedWeapon === 'bubble' ? 'Release as the bubble flashes for a perfect shot. The Angler’s lantern is vulnerable.' : 'The harpoon only bites on golden anchor rings.', foot).style.fontStyle = 'italic';
             const nav = el('div', '', undefined, foot);
             keyHint(data?.gamepad ? ['D-Pad'] : ['↑', '↓'], 'Select', nav); keyHint([data?.gamepad ? 'A' : 'Enter'], 'Confirm', nav);
         }

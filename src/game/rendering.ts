@@ -246,12 +246,17 @@ export class RoomView {
             this.breakables.push({ data, sprite, label, hits: 2 });
         }
         for (const h of room.heat ?? []) {
-            scene.add.tileSprite(h.x + h.w / 2, h.y + h.h, h.w, 65, 'lava').setOrigin(0.5, 1).setDepth(9).setTileScale(0.5);
-            for (let x = h.x + 80; x < h.x + h.w; x += 260) {
-                scene.add.image(x, 850, 'volcanic-vent').setOrigin(0.5, 1).setDisplaySize(110, 160).setDepth(8);
-                const glow = scene.add.image(x, 765, 'glow').setTint(0xff6b2f).setDisplaySize(360, 300).setAlpha(0.7).setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
+            const lava = scene.add.tileSprite(h.x + h.w / 2, h.y + h.h, h.w, Math.min(65, h.h), 'lava').setOrigin(0.5, 1).setDepth(9).setTileScale(0.5);
+            scene.tweens.add({ targets: lava, tilePositionX: 200, duration: 6000, repeat: -1 });
+            scene.tweens.add({ targets: lava, tilePositionY: 10, alpha: 0.75, duration: 720, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+            scene.add.particles(h.x, h.y + h.h - 28, 'bubble', { x: { min: 8, max: h.w - 8 }, lifespan: { min: 500, max: 1100 }, speedY: { min: -105, max: -30 }, speedX: { min: -12, max: 12 }, scale: { start: 0.6, end: 0.1 }, tint: [0xff802f, 0xffd18f], alpha: { start: 0.8, end: 0 }, frequency: 170 }).setDepth(17);
+            for (let x = h.x + Math.min(80, h.w / 2); x < h.x + h.w; x += 260) {
+                const floor = h.y + h.h;
+                const vent = scene.add.image(x, floor, 'volcanic-vent').setOrigin(0.5, 1).setDisplaySize(90, Math.min(120, h.h + 25)).setDepth(8);
+                scene.tweens.add({ targets: vent, scaleY: vent.scaleY * 1.08, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+                const glow = scene.add.image(x, floor - h.h / 2, 'glow').setTint(0xff6b2f).setDisplaySize(300, 240).setAlpha(0.7).setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
                 scene.tweens.add({ targets: glow, alpha: 0.35, duration: 700 + x % 300, yoyo: true, repeat: -1 });
-                scene.add.particles(x, 700, 'spark', { lifespan: 1600, speedY: { min: -100, max: -45 }, speedX: { min: -25, max: 25 }, scale: { start: 0.3, end: 0 }, alpha: { start: 0.65, end: 0 }, tint: [0xff6a30, 0xffca7e], frequency: 160 }).setDepth(17);
+                scene.add.particles(x, h.y + 12, 'spark', { lifespan: 1600, speedY: { min: -140, max: -45 }, speedX: { min: -25, max: 25 }, scale: { start: 0.5, end: 0 }, alpha: { start: 0.75, end: 0 }, tint: [0xff6a30, 0xffca7e], frequency: 100 }).setDepth(17);
             }
             plaque(scene, h.x + h.w / 2, h.y - 28, 'Extreme Heat · Carapace Only', 'heat', 11);
         }
@@ -275,7 +280,7 @@ export class RoomView {
                 const glow = scene.add.image(d.x, d.y - 60, 'glow').setDisplaySize(170, 210).setTint(d.shortcut ? COLORS.gold : theme.accent).setAlpha(0.18).setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
                 scene.tweens.add({ targets: glow, alpha: 0.32, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             }
-            const label = d.hidden ? undefined : plaque(scene, d.x, d.y - 160, `${d.shortcut ? '↗ ' : ''}${d.label.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())}${unlocked ? '' : '  ◈'}`, unlocked ? 'bone' : 'sealed', 10);
+            const label = d.hidden ? undefined : plaque(scene, d.x, d.crawl ? d.y + 85 : d.y - 160, `${d.shortcut ? '↗ ' : ''}${d.label.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())}${unlocked ? '' : '  ◈'}`, unlocked ? 'bone' : 'sealed', 10);
             this.doors.push({ data: d, image, label });
         }
         if (room.station) {
@@ -291,6 +296,7 @@ export class RoomView {
             const gold = p.kind === 'harpoon' || p.kind === 'key';
             const halo = scene.add.image(p.x, p.y, 'glow').setDisplaySize(220, 220).setTint(gold ? 0xefcc85 : p.kind === 'health' ? 0xff9fb0 : 0xe8a5cb).setAlpha(0.8).setDepth(9).setBlendMode(Phaser.BlendModes.ADD);
             const sprite = scene.add.image(p.x, p.y, p.kind === 'key' ? 'key' : p.kind === 'harpoon' ? 'harpoon-icon' : p.kind === 'health' ? 'pearl' : 'molt-icon').setDepth(12);
+            if (p.kind === 'breach' || p.kind === 'infestation') sprite.setDisplaySize(65, 65);
             scene.tweens.add({ targets: [sprite, halo], y: p.y - 12, duration: 1600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             scene.tweens.add({ targets: halo, alpha: 0.45, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             const label = plaque(scene, p.x, p.y + 50, p.kind === 'harpoon' ? 'Salvage Harpoon' : p.kind === 'key' ? 'Chapel Key' : p.kind === 'health' ? 'Vital Pearl' : 'The Molt', 'relic', 12);

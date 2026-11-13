@@ -58,6 +58,21 @@ export class AttackFx {
     /** Lights that this frame's effects throw into the darkness. */
     lights(): FxLight[] { return this.lightList; }
 
+    lanternPulse(e: Enemy, radius: number, progress: number, released: boolean): void {
+        const spot = e.weakSpot; if (!spot) return;
+        const x = spot.x + spot.w / 2, y = spot.y + spot.h / 2;
+        const t = Phaser.Math.Clamp(progress, 0, 1);
+        this.lightList.push({ x, y, r: released ? radius + 80 : 100 + 180 * t });
+        this.back.lineStyle(3, 0xb79afa, released ? 0.8 * (1 - t) : 0.25 + 0.4 * t).strokeCircle(x, y, radius);
+        if (released) {
+            this.front.fillStyle(0xc4cfff, 0.2 * (1 - t)).fillCircle(x, y, radius);
+            this.core.lineStyle(10 * (1 - t) + 1, 0xd5ffff, 1 - t).strokeCircle(x, y, radius * t);
+        } else {
+            this.core.lineStyle(2, 0xc4ffff, 0.6).strokeCircle(x, y, 16 + (1 - t) * 45);
+            this.front.fillStyle(0x9ffaff, 0.3 + 0.5 * t).fillCircle(x, y, 8 + 14 * t);
+        }
+    }
+
     /** Advances and draws free sparks and flashes. Call after enemies draw. */
     end(dt: number): void {
         const drag = (k: number) => Math.pow(k, dt);

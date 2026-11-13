@@ -11,7 +11,7 @@ export class Controls {
     private presses = new Set<string>();
     gamepad = false;
     private lastAim = new Phaser.Math.Vector2(1, 0);
-    clearKeyboard(): void { this.presses.clear(); this.scene.input.keyboard?.resetKeys(); }
+    clearKeyboard(): void { this.presses.clear(); this.wasAiming = false; this.scene.input.keyboard?.resetKeys(); }
     constructor(private scene: Phaser.Scene) {
         this.keys = scene.input.keyboard!.addKeys('W,A,S,D,UP,LEFT,DOWN,RIGHT,SPACE,SHIFT,J,K,E,M,TAB,ESC') as Record<string, Phaser.Input.Keyboard.Key>;
         // Keep a tap until the next simulation update, even if keyup arrives in the same frame.
@@ -26,15 +26,16 @@ export class Controls {
         scene.input.keyboard!.addCapture(['SPACE', 'UP', 'DOWN', 'LEFT', 'RIGHT', 'TAB']);
         scene.input.mouse?.disableContextMenu();
     }
-    poll(px: number, py: number): InputFrame {
+    poll(px: number, py: number, attached = false): InputFrame {
         const down = (key: string) => this.keys[key].isDown;
-        const pressed = (key: string) => { const found = this.presses.has(key); this.presses.delete(key); return found; };
+        const taps = new Set(this.presses); this.presses.clear();
+        const pressed = (key: string) => taps.has(key);
         const pad = Array.from(navigator.getGamepads?.() ?? []).find(p => p?.connected) ?? null;
         this.gamepad = !!pad;
         const held = (n: number) => !!pad?.buttons[n]?.pressed;
         const edge = (n: number) => held(n) && !this.previous.has(n);
         let x = Number(down('D') || down('RIGHT')) - Number(down('A') || down('LEFT'));
-        let y = Number(down('S') || down('DOWN')) - Number(down('W') || down('UP'));
+        let y = Number(down('DOWN') || attached && down('S')) - Number(down('UP') || attached && down('W'));
         if (pad) {
             const sx = pad.axes[0] ?? 0, sy = pad.axes[1] ?? 0;
             if (Math.abs(sx) > 0.2) x = sx;
@@ -52,10 +53,10 @@ export class Controls {
         } else if (pointer.rightButtonDown()) this.lastAim.set(pointer.worldX - px, pointer.worldY - py).normalize();
         const frame: InputFrame = {
             x: Phaser.Math.Clamp(x, -1, 1), y: Phaser.Math.Clamp(y, -1, 1),
-            jump: pressed('SPACE') || edge(0), jumpHeld: down('SPACE') || held(0),
-            drop: pressed('S') || pressed('DOWN') || edge(13),
+            jump: pressed('SPACE') || !attached && pressed('W') || edge(0), jumpHeld: down('SPACE') || !attached && down('W') || held(0),
+            drop: pressed('DOWN') || edge(13),
             attack: pressed('J') || pointer.leftButtonDown() && !this.previous.has(99) || edge(2),
-            dash: pressed('SHIFT') || edge(1), interact: pressed('E') || edge(3),
+            dash: pressed('SHIFT') || !attached && pressed('S') || edge(1), interact: pressed('E') || edge(3),
             aim, release: !aim && this.wasAiming, aimX: this.lastAim.x, aimY: this.lastAim.y,
             map: pressed('M') || pressed('TAB') || edge(8), pause: pressed('ESC') || edge(9)
         };

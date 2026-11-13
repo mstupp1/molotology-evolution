@@ -12,7 +12,7 @@ export function objective(p: Progress): string {
     if (!p.harpoon) return 'Find the salvage harpoon in the Armory.';
     if (p.evolution === 0) return 'Return to the Air Bell. Grapple to the Rigging Shaft.';
     if (p.evolution === 1) return 'Break the calcified bulkhead with your claw. Find the final molt.';
-    if (!p.key) return 'Dash through the Ballast Duct. Find the chapel key.';
+    if (!p.key) return 'Climb and ceiling-scuttle through the Ballast Duct. Find the chapel key.';
     return 'Cross the volcanic vents. Scuttle over the Caldera Vault to the last light.';
 }
 /** Each Vital Pearl found in the wreck permanently raises maximum health. */
@@ -60,7 +60,6 @@ export class Survival {
         this.invulnerable = Math.max(0, this.invulnerable - dt);
         const suffocatingTime = air || refill ? 0 : Math.max(0, dt - this.oxygen);
         this.oxygen = Math.max(0, Math.min(120, this.oxygen + (air || refill ? 40 : -1) * dt));
-        if (refill) this.health = Math.min(this.maxHealth, this.health + 50 * dt);
         this.health = Math.max(0, this.health - 8 * suffocatingTime);
     }
     hit(damage: number, invulnerability = 0.85): boolean {

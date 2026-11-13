@@ -17,10 +17,11 @@ export const GameEvent = {
     Snapshot: 'game:snapshot', Command: 'ui:command', Notice: 'game:notice', Sound: 'game:sound'
 } as const;
 export type Evolution = 0 | 1 | 2;
+export type RangedWeapon = 'none' | 'harpoon' | 'bubble';
 export type PlayerState = 'Idle' | 'Walk' | 'Jump' | 'Fall' | 'LedgeGrab' | 'Mantle' | 'Scuttle' | 'Dodge' | 'Dash' | 'MeleeAttack' | 'HarpoonAim' | 'HarpoonThrow' | 'HarpoonPull' | 'Hurt' | 'Death';
 export type UiCommand = { type: 'pause'; mode: 'map' | 'pause' } | { type: 'resume' } | { type: 'menu' } | { type: 'mute' };
 export interface GameSnapshot {
-    health: number; maxHealth: number; oxygen: number; evolution: Evolution; harpoon: boolean; key: boolean;
+    health: number; maxHealth: number; oxygen: number; evolution: Evolution; harpoon: boolean; key: boolean; rangedWeapon: RangedWeapon;
     room: RoomId; roomName: string; explored: RoomId[]; opened: string[]; defeated: string[];
     position: { x: number; y: number }; environment: 'water' | 'air' | 'pressure' | 'heat';
     state: PlayerState; prompt: string; objective: string; paused: boolean; completed: boolean;

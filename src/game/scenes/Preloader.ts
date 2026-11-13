@@ -1,7 +1,7 @@
 import * as Phaser from 'phaser';
 import { SceneKey } from '../constants';
 import { el, mountLayer } from '../ui/layer';
-import { ENEMY_KINDS, PLAYER_FRAMES, PLAYER_TEXTURES, playerAnimation, type PlayerAnimation } from '../animation';
+import { ENEMY_VISUALS, PLAYER_FRAMES, PLAYER_TEXTURES, playerAnimation, type PlayerAnimation } from '../animation';
 
 export class Preloader extends Phaser.Scene {
     private failures: string[] = [];
@@ -21,7 +21,7 @@ export class Preloader extends Phaser.Scene {
         this.load.json('motion-manifest', 'motion-manifest.json');
         this.load.spritesheet('diver', 'diver.png', { frameWidth: 160, frameHeight: 160 });
         for (const key of PLAYER_TEXTURES) this.load.spritesheet(key, `${key}.png`, { frameWidth: 160, frameHeight: 160 });
-        for (const kind of ENEMY_KINDS) this.load.spritesheet(`enemy-${kind}`, `enemy-${kind}.png`, { frameWidth: 256, frameHeight: 256 });
+        for (const kind of ENEMY_VISUALS) this.load.spritesheet(`enemy-${kind}`, `enemy-${kind}.png`, { frameWidth: 256, frameHeight: 256 });
         for (const key of ['harpoon-weapon', 'harpoon-head', 'anchor-ring', 'field-record', 'coral-barrier', 'volcanic-vent', 'lava', 'tentacle', 'claw-sweep', 'abyss-far', 'wreck-ribs']) this.load.image(key, `${key}.png`);
         for (let i = 0; i < 8; i++) { this.load.image(`creature-${i}`, `creature-${i}.png`); this.load.image(`prop-${i}`, `prop-${i}.png`); }
         for (const key of ['key', 'harpoon-icon', 'molt-icon']) this.load.image(key, `${key}.png`);
@@ -41,7 +41,7 @@ export class Preloader extends Phaser.Scene {
                 this.anims.create({ key, frames: this.anims.generateFrameNumbers(texture, { frames: [...PLAYER_FRAMES[name]] }), frameRate: name === 'idle' ? 3 : name === 'hang' ? 6 : name === 'melee' ? 18 : 12, repeat: loop ? -1 : 0 });
             }
         });
-        for (const kind of ENEMY_KINDS) {
+        for (const kind of ENEMY_VISUALS) {
             for (const [name, frames, rate, repeat] of [
                 ['move', [0, 1, 2, 3, 4, 5], 9, -1], ['windup', [6, 7], 4, 0],
                 ['strike', [8, 9], 8, -1], ['recover', [10, 11], 5, 0]
