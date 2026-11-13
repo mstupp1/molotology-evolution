@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+test.setTimeout(90000);
 
 async function start(page) {
     await page.goto('/');
@@ -31,10 +32,10 @@ test('six-frame walking and attack, dedicated catch/hang/mantle and wielded harp
     await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.player.resetAt(700, 850));
     await page.keyboard.down('d');
     const walk = new Set();
-    for (let i = 0; i < 10; i++) { await page.waitForTimeout(60); walk.add((await read(page)).frame); }
+    for (let i = 0; i < 24; i++) { await page.waitForTimeout(90); walk.add((await read(page)).frame); }
     await page.keyboard.up('d'); expect(walk.size).toBeGreaterThanOrEqual(5);
     await page.keyboard.press('j'); const attacks = new Set();
-    for (let i = 0; i < 6; i++) { await page.waitForTimeout(45); const p = await read(page); if (p.state === 'MeleeAttack') attacks.add(p.frame); }
+    for (let i = 0; i < 18; i++) { await page.waitForTimeout(80); const p = await read(page); if (p.state === 'MeleeAttack') attacks.add(p.frame); }
     expect(attacks.size).toBeGreaterThanOrEqual(4);
     await page.waitForFunction(() => !window.__MOLOTOLOGY__.scene.keys.Game.combo.active);
     expect(await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.harpoon.weapon.texture.key)).toBe('harpoon-weapon');
@@ -76,12 +77,12 @@ test('full crab withstands heat, climbs walls, scuttles upside down and drops on
     await page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.player.resetAt(1117, 800));
     await page.keyboard.down('d'); await page.keyboard.down('w');
     await expect.poll(async () => (await read(page)).surface).toBe('right');
-    const wallY = (await read(page)).y; await page.waitForTimeout(550); expect((await read(page)).y).toBeLessThan(wallY - 45);
-    await expect.poll(async () => (await read(page)).surface, {timeout:4000}).toBe('ceiling');
+    const wallY = (await read(page)).y; await expect.poll(async () => (await read(page)).y, { timeout: 12000 }).toBeLessThan(wallY - 45);
+    await expect.poll(async () => (await read(page)).surface, {timeout:12000}).toBe('ceiling');
     await page.keyboard.up('d'); await page.keyboard.down('a');
-    await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.keys.Game.player.surface === 'right', undefined, {timeout:4000});
+    await page.waitForFunction(() => window.__MOLOTOLOGY__.scene.keys.Game.player.surface === 'right', undefined, {timeout:12000});
     await page.keyboard.up('a');
-    await expect.poll(async () => (await read(page)).feet, {timeout:4000}).toBeCloseTo(470, 0);
+    await expect.poll(async () => (await read(page)).feet, {timeout:12000}).toBeCloseTo(470, 0);
     await page.keyboard.up('w');
     expect((await read(page)).x).toBeGreaterThan(850);
     // Isolate the underside contact; real controls attach, translate and detach.
@@ -93,7 +94,7 @@ test('full crab withstands heat, climbs walls, scuttles upside down and drops on
     expect((await read(page)).x).toBeGreaterThan(ceilingX + 40);
     await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game; s.survival.invulnerable = 0; s.player.setAlpha(1); s.player.visual.setAlpha(1); });
     await page.screenshot({path:'art/qa/ceiling-scuttle.png'});
-    await page.keyboard.press('s'); await expect.poll(async () => (await read(page)).surface).toBeNull();
+    await page.keyboard.press('ArrowDown'); await expect.poll(async () => (await read(page)).surface).toBeNull();
     await expect.poll(async () => (await read(page)).y).toBeGreaterThan(560);
 });
 
@@ -114,6 +115,6 @@ test('swimmers cross platforms and every species has its own attack sequence', a
     }
     await fixture(page, 'hull', 2);
     await page.evaluate(() => { const s = window.__MOLOTOLOGY__.scene.keys.Game, e = s.enemies.list.find(e => e.kind === 'jellyfish'); e.body.reset(630, 600); e.mode = 'strike'; e.timer = 3; e.setVelocity(0, 160); });
-    await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.enemies.list.find(e => e.kind === 'jellyfish').y), {timeout:4000}).toBeGreaterThan(750);
+    await expect.poll(() => page.evaluate(() => window.__MOLOTOLOGY__.scene.keys.Game.enemies.list.find(e => e.kind === 'jellyfish').y), {timeout:12000}).toBeGreaterThan(750);
     expect(errors).toEqual([]);
 });

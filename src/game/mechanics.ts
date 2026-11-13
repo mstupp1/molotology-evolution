@@ -1,9 +1,11 @@
-import type { Evolution } from './constants';
+import type { Evolution, RangedWeapon } from './constants';
 import { segmentRect, type Rect } from './world';
 
 export const abilities = (evolution: Evolution) => ({ claw: evolution >= 1, dash: evolution >= 1, pressure: evolution >= 1, heat: evolution === 2, scuttle: evolution === 2 });
 export function meleeReach(evolution: Evolution, finisher: boolean): number { return evolution === 0 ? (finisher ? 128 : 102) : (finisher ? 210 : 175); }
 export const isSwimmer = (kind: string): boolean => ['jellyfish', 'shark', 'angler'].includes(kind);
+export const isLostDiver = (kind: string): boolean => kind === 'handcrab' || kind === 'hermit';
+export const rangedWeapon = (p: { evolution: Evolution; harpoon: boolean }): RangedWeapon => p.evolution === 2 ? 'bubble' : p.harpoon ? 'harpoon' : 'none';
 
 /** Sweep the whole player body, not only its center, through terrain. */
 export function sweepBody(ax: number, ay: number, bx: number, by: number, width: number, height: number, geometry: Rect[]): number | null {

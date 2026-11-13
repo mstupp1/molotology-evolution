@@ -16,7 +16,7 @@ describe('shipwreck progression', () => {
         const progress = newProgress(), visited = new Set<RoomId>(['hull']);
         for (let iteration = 0; iteration < 20; iteration++) {
             for (const id of [...visited]) {
-                for (const p of ROOMS[id].pickups) collect(progress, p.id, p.kind);
+                for (const p of ROOMS[id].pickups) if (meetsRequirement(p.requires, progress)) collect(progress, p.id, p.kind);
                 for (const d of ROOMS[id].doors) if (meetsRequirement(d.requires, progress)) visited.add(d.to);
             }
         }
@@ -37,9 +37,9 @@ describe('shipwreck progression', () => {
     });
 });
 describe('vital pearls and platform clearance', () => {
-    it('hides four pearls in rooms reached on the main route', () => {
+    it('hides four main-route pearls and one heat-gated Cargo pearl', () => {
         const pearls = ROOM_IDS.flatMap(id => ROOMS[id].pickups.filter(p => p.kind === 'health').map(p => p.id));
-        expect(pearls.sort()).toEqual(['pearl:cargo', 'pearl:chapel', 'pearl:quarters', 'pearl:rigging']);
+        expect(pearls.sort()).toEqual(['pearl:cargo', 'pearl:cargo-thermal', 'pearl:chapel', 'pearl:quarters', 'pearl:rigging']);
     });
     it('leaves room for the 86 px player body between every pair of stacked platforms', () => {
         for (const id of ROOM_IDS) {

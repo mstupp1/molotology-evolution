@@ -6,7 +6,7 @@ import { chargeAt, HARPOON, launchSpeed, predictArc, reelSpeed, Rope, shotDamage
 import { segmentRect, type Room, type Rect } from '../world';
 
 export type HarpoonEvent =
-    | { type: 'enemy'; x: number; y: number; damage: number; perfect: boolean }
+    | { type: 'enemy'; x: number; y: number; damage: number; perfect: boolean; weak?: boolean }
     | { type: 'wall'; x: number; y: number; perfect: boolean }
     | { type: 'latch'; x: number; y: number }
     | { type: 'snap'; x: number; y: number }
@@ -78,33 +78,38 @@ export class Harpoon {
         }
         if (this.mode !== 'ready' && this.mode !== 'return') { this.mode = 'return'; this.reel = 0; this.pullTime = 0; this.drifting = false; }
     }
+    cancel(): void {
+        if (this.mode === 'pull') this.release();
+        this.mode = 'ready'; this.held = 0; this.released = chargeAt(0); this.anchor = null; this.trail = [];
+        this.head.setVisible(false); this.weapon.setVisible(false); this.graphics.clear(); this.glow.clear();
+    }
     update(dt: number, room: Room, enemies: EnemySystem, geometry: Rect[] = room.platforms): HarpoonEvent[] {
         const p = this.player, events: HarpoonEvent[] = [], hand = this.muzzle(); this.elapsed += dt;
         if (this.mode === 'out') {
             for (let left = dt; left > 1e-6 && this.mode === 'out'; left -= SUBSTEP) {
                 const step = Math.min(SUBSTEP, left), from = this.projectile, next = stepProjectile(from, step);
                 this.age += step;
-                let hitT = 1.01, hit: { type: 'wall' | 'anchor' | 'enemy'; index: number } | null = null;
-                const check = (r: Rect, type: 'wall' | 'anchor' | 'enemy', index: number) => {
+                let hitT = 1.01, hit: { type: 'wall' | 'anchor' | 'enemy'; index: number; weak: boolean } | null = null;
+                const check = (r: Rect, type: 'wall' | 'anchor' | 'enemy', index: number, weak = false) => {
                     const t = segmentRect(from.x, from.y, next.x, next.y, r);
-                    if (t !== null && t < hitT) { hitT = t; hit = { type, index }; }
+                    if (t !== null && t < hitT) { hitT = t; hit = { type, index, weak }; }
                 };
                 geometry.forEach((r, i) => check(r, 'wall', i));
                 room.anchors.forEach((a, i) => check({ x: a.x - ANCHOR_RADIUS, y: a.y - ANCHOR_RADIUS, w: ANCHOR_RADIUS * 2, h: ANCHOR_RADIUS * 2 }, 'anchor', i));
-                enemies.list.forEach((e, i) => { if (e.active) check({ x: e.body.x, y: e.body.y, w: e.body.width, h: e.body.height }, 'enemy', i); });
+                enemies.list.forEach((e, i) => { if (e.active && e.health > 0) e.hitZones.forEach(z => check(z.rect, 'enemy', i, z.weak)); });
                 const t = Math.min(hitT, 1);
                 this.x = from.x + (next.x - from.x) * t; this.y = from.y + (next.y - from.y) * t;
                 this.projectile = { ...next, x: this.x, y: this.y };
                 this.angle = Math.atan2(next.vy, next.vx);
-                const result = hit as { type: 'wall' | 'anchor' | 'enemy'; index: number } | null;
+                const result = hit as { type: 'wall' | 'anchor' | 'enemy'; index: number; weak: boolean } | null;
                 if (result?.type === 'anchor') {
                     this.anchor = room.anchors[result.index]; this.x = this.anchor.x; this.y = this.anchor.y;
                     this.mode = 'pull'; p.detach(); p.state = 'HarpoonPull'; p.body.allowGravity = false; p.setAcceleration(0, 0);
                     events.push({ type: 'latch', x: this.x, y: this.y });
                 } else if (result?.type === 'enemy') {
                     const e = enemies.list[result.index], damage = shotDamage(38 + p.evolution * 8, this.shot);
-                    enemies.hit(e, damage, Math.sign(this.projectile.vx) || p.facing, e.boss || e.kind === 'octopus' || e.kind === 'urchin' ? undefined : p.centerX);
-                    events.push({ type: 'enemy', x: this.x, y: this.y, damage, perfect: this.shot.perfect });
+                    const resolved = enemies.hit(e, damage, Math.sign(this.projectile.vx) || p.facing, e.boss || e.kind === 'octopus' || e.kind === 'urchin' ? undefined : p.centerX, result.weak);
+                    if (resolved) events.push({ type: 'enemy', x: this.x, y: this.y, ...resolved, perfect: this.shot.perfect });
                     this.stick(0.1);
                 } else if (result) {
                     events.push({ type: 'wall', x: this.x, y: this.y, perfect: this.shot.perfect });

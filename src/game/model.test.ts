@@ -7,10 +7,10 @@ describe('survival', () => {
         expect(s.oxygen).toBe(1); expect(s.health).toBe(100);
         s.update(3, false, false); expect(s.oxygen).toBe(0); expect(s.health).toBe(84);
     });
-    it('air refills oxygen, while a station also restores health, with caps', () => {
+    it('air and stations refill oxygen without restoring health, with caps', () => {
         const s = new Survival(); s.oxygen = 0; s.health = 40;
         s.update(1, true, false); expect(s.oxygen).toBe(40); expect(s.health).toBe(40);
-        s.update(4, false, true); expect(s.oxygen).toBe(120); expect(s.health).toBe(100);
+        s.update(4, false, true); expect(s.oxygen).toBe(120); expect(s.health).toBe(40);
     });
     it('rejects repeated contact hits during invulnerability, but drowning remains active', () => {
         const s = new Survival(); expect(s.hit(20)).toBe(true); expect(s.hit(20)).toBe(false);
@@ -24,9 +24,9 @@ describe('vital pearls', () => {
         expect(maxHealth(p)).toBe(100 + 2 * PEARL_HEALTH);
         expect(maxHealth(decodeSave(JSON.stringify(p))!)).toBe(100 + 2 * PEARL_HEALTH);
     });
-    it('lets stations refill to the raised maximum, and starts full', () => {
+    it('starts with raised maximum health; stations preserve current health', () => {
         const s = new Survival(140); expect(s.health).toBe(140);
-        s.health = 10; s.update(10, false, true); expect(s.health).toBe(140);
+        s.health = 10; s.update(10, false, true); expect(s.health).toBe(10);
     });
 });
 describe('combo damage windows', () => {

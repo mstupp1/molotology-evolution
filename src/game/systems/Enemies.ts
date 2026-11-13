@@ -2,7 +2,8 @@ import * as Phaser from 'phaser';
 import type { EnemyKind, EnemySpawn, Rect } from '../world';
 import { segmentRect } from '../world';
 import type { Player } from './Player';
-import { isSwimmer } from '../mechanics';
+import { isLostDiver, isSwimmer } from '../mechanics';
+import { COMBAT, hitDamage, lanternRect, tentacleTip } from '../combat';
 import { AttackFx, type FxLight } from './AttackFx';
 
 export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; height: number; hp: number; damage: number; name: string }> = {
@@ -21,21 +22,29 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     health: number; maxHealth: number;
     mode: 'patrol' | 'windup' | 'strike' | 'recover' = 'patrol'; timer = 1.8; elapsed = 0;
     target = new Phaser.Math.Vector2(); home = new Phaser.Math.Vector2(); cycles = 0; stun = 0; flash = 0;
+    attack: 'lunge' | 'frenzy' | 'pulse' | 'leap' = 'lunge';
+    duration = 0.85; passes = 0; pulseHit = false;
     constructor(scene: Phaser.Scene, readonly spec: EnemySpawn, swimming: boolean) {
-        super(scene, spec.x, spec.y, `enemy-${spec.kind}`, 0);
+        super(scene, spec.x, spec.y, `enemy-${spec.visual ?? spec.kind}`, 0);
         scene.add.existing(this); scene.physics.add.existing(this);
         const info = ENEMY_INFO[spec.kind]; this.health = this.maxHealth = info.hp;
-        const bounds = scene.cache.json.get('motion-manifest').enemies[spec.kind].referenceBounds as number[];
+        const bounds = scene.cache.json.get('motion-manifest').enemies[spec.visual ?? spec.kind].referenceBounds as number[];
         const w = bounds[2] - bounds[0], h = bounds[3] - bounds[1];
         this.setScale(info.width / w, info.height / h).setDepth(18).setCollideWorldBounds(true);
         this.body.setSize(w * 0.67, h * 0.66).setOffset(128 - w * 0.335, 128 - h * 0.33);
-        this.play(`enemy-${spec.kind}-move`);
+        this.play(`enemy-${spec.visual ?? spec.kind}-move`);
         this.body.allowGravity = !swimming; this.body.gravity.y = swimming ? 0 : 430;
         if (!swimming) this.y = 850 - info.height * 0.36;
         this.home.set(this.x, this.y); this.timer += (spec.x % 7) * 0.15;
     }
     get kind(): EnemyKind { return this.spec.kind; }
+    get displayName(): string { return this.spec.visual === 'rigging-diver' ? 'THE RIGGING CASTAWAY' : this.spec.visual === 'cinder-diver' ? 'THE CINDER DIVER' : ENEMY_INFO[this.kind].name; }
     get boss(): boolean { return this.kind === 'handcrab' || this.kind === 'hermit' || this.kind === 'angler'; }
+    get weakSpot(): Rect | null { return this.kind === 'angler' ? lanternRect(this.x, this.y, this.scaleX, this.scaleY, Number(this.frame.name), this.flipX) : null; }
+    get hitZones(): { rect: Rect; weak: boolean }[] {
+        const b = this.body, weak = this.weakSpot;
+        return [...(weak ? [{ rect: weak, weak: true }] : []), { rect: { x: b.x, y: b.y, w: b.width, h: b.height }, weak: false }];
+    }
     takeDamage(amount: number, direction: number, pullX?: number): boolean {
         if (this.health <= 0) return false;
         this.health = Math.max(0, this.health - amount); this.stun = this.boss ? 0.12 : 0.32;
@@ -64,11 +73,15 @@ export class EnemySystem {
             if (enemy.kind === 'octopus') this.tentacles.set(enemy, scene.add.image(enemy.x, enemy.y, 'tentacle').setOrigin(1, 0.5).setDepth(21).setVisible(false));
         }
         // Swimmers inhabit the water column and deliberately pass through wreck platforms.
-        this.collider = scene.physics.add.collider(this.list.filter(e => !isSwimmer(e.kind)), platforms);
+        this.collider = scene.physics.add.collider(this.list.filter(e => !isSwimmer(e.kind)), platforms, undefined, (actor, terrain) => {
+            const enemy = actor as Enemy, floor = terrain as Phaser.Physics.Arcade.Image;
+            return !isLostDiver(enemy.kind) || (floor.body?.y ?? 0) >= 850;
+        });
     }
     blocked(ax: number, ay: number, bx: number, by: number): boolean { return this.geometry.some(r => segmentRect(ax, ay, bx, by, r) !== null); }
     shoot(e: Enemy, player: Player, spread = 0): void {
-        const ox = e.kind === 'angler' ? (e.flipX ? 120 : -120) : 0, oy = e.kind === 'angler' ? -90 : 0;
+        const lantern = e.weakSpot;
+        const ox = lantern ? lantern.x + lantern.w / 2 - e.x : 0, oy = lantern ? lantern.y + lantern.h / 2 - e.y : 0;
         for (let i = -spread; i <= spread; i++) {
             const shot = this.projectiles.get(e.x + ox, e.y + oy, 'spark') as Phaser.Physics.Arcade.Image | null;
             if (!shot) return;
@@ -79,7 +92,7 @@ export class EnemySystem {
     }
     /** Bioluminescent creatures and live attack effects keep pools of light in the dark. */
     lights(): FxLight[] {
-        const glow = this.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => ({ x: e.x + (e.kind === 'angler' ? (e.flipX ? 90 : -90) : 0), y: e.y - (e.kind === 'angler' ? 100 : 25), r: e.kind === 'angler' ? 150 : 70 }));
+        const glow = this.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => { const spot = e.weakSpot; return { x: spot ? spot.x + spot.w / 2 : e.x, y: spot ? spot.y + spot.h / 2 : e.y - 25, r: spot ? 150 : 70 }; });
         return [...glow, ...this.fx.lights()];
     }
     update(dt: number, player: Player): void {
@@ -87,6 +100,11 @@ export class EnemySystem {
         for (const e of this.list) {
             this.tentacles.get(e)?.setVisible(false);
             if (!e.active || e.health <= 0) continue;
+            if (e.kind === 'angler') {
+                const b = e.scene.physics.world.bounds;
+                const x = Phaser.Math.Clamp(e.x, e.displayWidth / 2, b.width - e.displayWidth / 2), y = Phaser.Math.Clamp(e.y, e.displayHeight / 2, b.height - e.displayHeight / 2);
+                if (x !== e.x || y !== e.y) { e.setPosition(x, y); e.body.updateFromGameObject(); }
+            }
             e.elapsed += dt; e.timer -= dt;
             const dx = player.centerX - e.x, dy = player.centerY - e.y, distance = Math.hypot(dx, dy);
             e.setFlipX(dx > 0);
@@ -108,19 +126,27 @@ export class EnemySystem {
                 } else if (e.boss) e.setVelocityX(Math.sign(dx) * 43);
                 else e.setVelocityX(0);
                 const reach = e.kind === 'urchin' ? 260 : e.kind === 'octopus' ? 380 : e.kind === 'jellyfish' ? 380 : e.boss ? 850 : 650;
-                if (e.timer <= 0 && distance < reach && !this.blocked(e.x, e.y, player.centerX, player.centerY)) {
-                    e.mode = 'windup'; e.timer = e.kind === 'urchin' ? 0.65 : enraged ? 0.55 : 0.85;
+                if (e.timer <= 0 && distance < reach && (isLostDiver(e.kind) || !this.blocked(e.x, e.y, player.centerX, player.centerY))) {
+                    e.attack = e.kind === 'angler' ? (['lunge', 'frenzy', 'pulse'] as const)[e.cycles % 3] : isLostDiver(e.kind) && e.cycles % 2 === 1 ? 'leap' : 'lunge';
+                    e.duration = e.attack === 'pulse' ? COMBAT.pulseCharge : e.kind === 'urchin' ? 0.65 : enraged ? 0.55 : 0.85;
+                    e.mode = 'windup'; e.timer = e.duration;
                     e.target.set(player.centerX, player.centerY); e.setVelocity(0, 0);
                 }
             } else if (e.mode === 'windup') {
                 e.setVelocityX(0); e.setTint(Math.sin(e.elapsed * 30) > 0 ? (e.kind === 'jellyfish' ? 0xc4d8ff : 0xff9d8b) : 0xffffff);
-                const charge = 1 - e.timer / (e.kind === 'urchin' ? 0.65 : enraged ? 0.55 : 0.85);
-                if (e.kind === 'jellyfish') this.fx.jellyWindup(e, JELLY_RADIUS, charge);
+                const charge = 1 - e.timer / e.duration;
+                if (e.attack === 'pulse') this.fx.lanternPulse(e, COMBAT.pulseRadius, charge, false);
+                else if (e.kind === 'jellyfish') this.fx.jellyWindup(e, JELLY_RADIUS, charge);
                 else if (e.kind === 'urchin') this.fx.urchinWindup(e, URCHIN_RADIUS, charge);
                 else this.fx.lungeWindup(e, e.target, charge, e.kind === 'angler' ? 0xc8b4ff : e.kind === 'octopus' ? 0xd88aa0 : 0xe99c7d);
                 if (e.timer <= 0) {
-                    e.mode = 'strike'; e.timer = e.kind === 'octopus' ? 0.35 : e.kind === 'urchin' ? 1.3 : 0.6; e.cycles++;
-                    if (['shark', 'angler', 'handcrab', 'hermit'].includes(e.kind)) {
+                    e.mode = 'strike'; e.timer = e.kind === 'octopus' ? 0.35 : e.kind === 'urchin' ? 1.3 : e.attack === 'pulse' ? 0.35 : e.attack === 'leap' ? COMBAT.diverFlight + 0.1 : 0.6; e.cycles++;
+                    e.duration = e.timer; e.pulseHit = false;
+                    if (e.attack === 'frenzy') { e.passes = 0; this.frenzyPass(e, player); }
+                    else if (e.attack === 'leap') {
+                        const flight = COMBAT.diverFlight;
+                        e.setVelocity(Phaser.Math.Clamp((e.target.x - e.x) / flight, -650, 650), (e.target.y - e.y - 0.5 * 430 * flight * flight) / flight);
+                    } else if (e.attack !== 'pulse' && ['shark', 'angler', 'handcrab', 'hermit'].includes(e.kind)) {
                         const v = new Phaser.Math.Vector2(e.target.x - e.x, ['shark', 'angler'].includes(e.kind) ? e.target.y - e.y : 0).normalize();
                         e.setVelocity(v.x * (enraged ? 570 : e.boss ? 420 : 540), v.y * 340);
                     }
@@ -128,26 +154,33 @@ export class EnemySystem {
                     if (e.kind === 'angler' && (enraged || e.cycles % 2 === 0)) this.shoot(e, player, enraged ? 1 : 0);
                 }
             } else if (e.mode === 'strike') {
+                if (e.attack === 'frenzy' && e.timer <= 0 && e.passes < 4) this.frenzyPass(e, player);
+                if (e.attack === 'pulse') {
+                    e.setVelocity(0, 0); this.fx.lanternPulse(e, COMBAT.pulseRadius, 1 - e.timer / e.duration, true);
+                    const spot = e.weakSpot!;
+                    if (!e.pulseHit && Phaser.Math.Distance.Between(player.centerX, player.centerY, spot.x + spot.w / 2, spot.y + spot.h / 2) <= COMBAT.pulseRadius) {
+                        e.pulseHit = true; this.damagePlayer(28, e.x);
+                    }
+                }
                 if (e.kind === 'jellyfish' || e.kind === 'urchin') {
                     const r = e.kind === 'jellyfish' ? JELLY_RADIUS : URCHIN_RADIUS, inside = distance < r + 16;
                     if (e.kind === 'jellyfish') this.fx.jellyStrike(e, r, 1 - e.timer / 0.6, inside ? { x: player.centerX, y: player.centerY - 10 } : null);
                     else this.fx.urchinStrike(e, r, 1 - e.timer / 1.3);
                     if (inside) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
-                } else if (e.kind !== 'octopus') this.fx.lungeStrike(e, e.kind === 'angler' ? 0xb5a4eb : e.boss ? 0xff9a7a : 0x9fd8e8);
+                } else if (e.kind !== 'octopus' && e.attack !== 'pulse') this.fx.lungeStrike(e, e.kind === 'angler' ? 0xb5a4eb : e.boss ? 0xff9a7a : 0x9fd8e8);
                 if (e.kind === 'octopus') {
-                    const extension = Math.sin(Math.PI * Phaser.Math.Clamp((0.35 - e.timer) / 0.35, 0, 1));
-                    const tx = e.x + (e.target.x - e.x) * extension, ty = e.y + (e.target.y - e.y) * extension;
+                    const { x: tx, y: ty } = tentacleTip(e.x, e.y, e.target.x, e.target.y, (0.35 - e.timer) / 0.35);
                     this.tentacles.get(e)?.setVisible(true).setPosition(e.x, e.y).setDisplaySize(Math.max(15, Math.hypot(tx - e.x, ty - e.y)), 35).setRotation(Math.atan2(ty - e.y, tx - e.x) + Math.PI);
                     const hit = Phaser.Geom.Intersects.LineToRectangle(new Phaser.Geom.Line(e.x, e.y, tx, ty), new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height));
                     if (hit) this.damagePlayer(18, e.x);
                 }
-                if (e.timer <= 0 || e.body.blocked.left || e.body.blocked.right) { e.mode = 'recover'; e.timer = e.kind === 'angler' ? (enraged ? 1.3 : 1.7) : e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
+                if (e.timer <= 0 || !isLostDiver(e.kind) && e.kind !== 'angler' && (e.body.blocked.left || e.body.blocked.right)) { e.mode = 'recover'; e.timer = e.kind === 'angler' ? (e.attack === 'pulse' ? 1.5 : enraged ? 1.3 : 1.7) : e.kind === 'shark' ? COMBAT.sharkRecovery : e.boss ? 1.25 : 1; e.setVelocity(0, 0); }
             } else {
                 // After a lunge the Angler hangs open-jawed and drifts back up: a readable punish window.
                 if (e.kind === 'angler') { e.setVelocity(0, (e.home.y - e.y) * 0.9); if (Math.sin(e.elapsed * 12) > 0) e.setTint(0xffe0a0); }
-                if (e.timer <= 0) { e.mode = 'patrol'; e.timer = enraged ? 0.45 : 1.1; }
+                if (e.timer <= 0) { e.mode = 'patrol'; e.timer = e.kind === 'shark' ? COMBAT.sharkPatrol : enraged ? 0.45 : 1.1; }
             }
-            const animation = `enemy-${e.kind}-${e.mode === 'patrol' ? 'move' : e.mode}`;
+            const animation = `enemy-${e.spec.visual ?? e.kind}-${e.mode === 'patrol' ? 'move' : e.mode}`;
             if (e.anims.currentAnim?.key !== animation) e.play(animation);
             const harmless = e.kind === 'urchin' || e.kind === 'angler' && e.mode === 'recover';
             if (!harmless && Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height))) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
@@ -170,15 +203,29 @@ export class EnemySystem {
     private fizzle(p: Phaser.Physics.Arcade.Image): void {
         this.fx.burst(p.x, p.y, p.getData('electric') ? 0x9fe8ff : 0xc8b4ff, 6, 180); this.fx.dropTrail(p); p.disableBody(true, true);
     }
-    hit(e: Enemy, amount: number, direction: number, pullX?: number): boolean {
-        if (!e.takeDamage(amount, direction, pullX)) return false;
+    private frenzyPass(e: Enemy, player: Player): void {
+        e.passes++;
+        const bounds = e.scene.physics.world.bounds, marginX = e.displayWidth / 2 + 12, marginY = e.displayHeight / 2 + 12;
+        e.target.set(Phaser.Math.Clamp(player.centerX + (e.passes % 2 ? -1 : 1) * Phaser.Math.Between(180, 340), marginX, bounds.width - marginX), Phaser.Math.Clamp(player.centerY + Phaser.Math.Between(-210, 180), marginY, bounds.height - marginY));
+        const v = e.target.clone().subtract(new Phaser.Math.Vector2(e.x, e.y));
+        e.timer = Math.max(0.15, v.length() / 800); e.duration = e.timer; v.scale(1 / e.timer); e.setVelocity(v.x, v.y);
+    }
+    hit(e: Enemy, amount: number, direction: number, pullX?: number, weak = false): { damage: number; weak: boolean } | null {
+        weak = weak && e.kind === 'angler';
+        const damage = hitDamage(amount, weak);
+        if (!e.takeDamage(damage, direction, pullX)) return null;
+        if (weak) { const r = e.weakSpot; if (r) this.fx.burst(r.x + r.w / 2, r.y + r.h / 2, 0xc4ffff, 18, 240); }
         if (e.health === 0) {
+            if (e.kind === 'angler') this.projectiles.getChildren().forEach(child => {
+                const shot = child as Phaser.Physics.Arcade.Image;
+                this.fx.dropTrail(shot); shot.disableBody(true, true);
+            });
             // The body stops colliding at once; the sprite lingers for a short death animation.
             e.disableBody(true, false); e.setTint(0xffd8c8).setTintMode(Phaser.TintModes.FILL);
             e.scene.tweens.add({ targets: e, alpha: 0, scaleX: e.scaleX * 1.25, scaleY: e.scaleY * 0.6, angle: direction * (e.boss ? 8 : 25), y: e.y + (e.boss ? 40 : 20), duration: e.boss ? 1400 : 520, ease: 'Quad.In', onComplete: () => e.setVisible(false) });
             this.onKill(e);
         }
-        return true;
+        return { damage, weak };
     }
     destroy(): void { this.collider.destroy(); this.tentacles.forEach(s => s.destroy()); this.tentacles.clear(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); this.fx.destroy(); }
 }

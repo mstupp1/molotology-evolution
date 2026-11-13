@@ -24,3 +24,11 @@ python scripts/prepare_motion_assets.py
 ```
 
 Original prompts are recorded in [PROMPTS.md](PROMPTS.md); motion, weapon, object and parallax prompts are in [MOTION_PROMPTS.md](MOTION_PROMPTS.md). Browser captures are in `art/qa/`.
+
+## Combat and progression update
+
+Built-in **image_gen** produced two distinct lost-diver variants and a split, glowing carapace molt relic. Transparent originals are `art/source/enemy-rigging-diver.png`, `art/source/enemy-cinder-diver.png`, and `art/source/molt-relic.png`. Packed runtime assets are `public/assets/enemy-rigging-diver.png`, `public/assets/enemy-cinder-diver.png`, and the replaced `public/assets/molt-icon.png`. The original hidden-chamber Handcrab and Hermit remain distinct encounters.
+
+Rebuild the additions with `python scripts/prepare_update_assets.py` (Pillow). Each diver has twelve frames in the existing 256×256 cell format, with one common scale across all poses. The script preserves existing motion-manifest entries and appends bounds for the new visuals. The relic packs to a transparent 128×128 cell and displays at 65×65. Exact generation prompts are in [UPDATE_PROMPTS.md](UPDATE_PROMPTS.md).
+
+Lantern weak-spot centers in `src/game/combat.ts` follow the luminous cyan bulb across all twelve Angler frames and mirror with facing. Software-WebGL regression checks advance the real Phaser input/scene/Arcade loop at 60Hz between rendered captures, avoiding timing assertions based on software rendering speed.

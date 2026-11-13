@@ -34,6 +34,10 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     get centerX(): number { return this.body.center.x; }
     get centerY(): number { return this.body.center.y; }
     get feet(): number { return this.body.bottom; }
+    get visualCenter(): { x: number; y: number } {
+        const bounds = this.scene.cache.json.get('motion-manifest').players[this.visual.texture.key].bounds[Number(this.visual.frame.name)] as number[];
+        return this.visual.getWorldTransformMatrix().transformPoint((bounds[0] + bounds[2]) / 2 - this.visual.displayOriginX, (bounds[1] + bounds[3]) / 2 - this.visual.displayOriginY, new Phaser.Math.Vector2());
+    }
     private placeBody(x: number, feet: number): void {
         this.body.reset(x, feet - 70);
         // reset() uses the texture's top-left. Apply the custom collision offset now,
@@ -69,17 +73,18 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         return !platforms.some(p => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y);
     }
     private attach(surface: Surface, r: Rect): void {
+        const oldFeet = this.feet;
         this.surface = surface; this.attachment = r; this.state = 'Scuttle'; this.ledge = null;
         this.body.allowGravity = false; this.setAcceleration(0, 0).setDrag(0, 0);
         this.resizeBody(surface === 'ceiling' ? 64 : 44, surface === 'ceiling' ? 44 : 64);
         const x = surface === 'right' ? r.x - this.body.width / 2 : surface === 'left' ? r.x + r.w + this.body.width / 2 : this.centerX;
-        const feet = surface === 'ceiling' ? r.y + r.h + this.body.height : this.feet;
+        const feet = surface === 'ceiling' ? r.y + r.h + this.body.height : oldFeet;
         this.placeBody(x, feet);
     }
     private scuttle(input: InputFrame, platforms: Rect[]): boolean {
         if (!abilities(this.form).scuttle || this.reattachDelay > 0 || this.dashTime > 0 || this.hurtTime > 0) return false;
         const b = this.body;
-        if (this.surface && (input.jump || this.surface === 'ceiling' && (input.drop || input.y > 0.45))) {
+        if (this.surface && (input.jump || this.surface === 'ceiling' && input.drop)) {
             const side = this.surface; this.detach(); this.standingBody();
             this.setVelocity(side === 'right' ? -220 : side === 'left' ? 220 : input.x * 180, side === 'ceiling' ? 100 : -300);
             this.state = side === 'ceiling' ? 'Fall' : 'Jump'; this.jumped = side !== 'ceiling'; return true;
@@ -93,7 +98,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         const ceiling = platforms.find(r => Math.abs(b.top - (r.y + r.h)) < 12 && b.right > r.x + 3 && b.left < r.x + r.w - 3);
         const right = platforms.find(r => Math.abs(b.right - r.x) < 12 && b.bottom > r.y + 3 && b.top < r.y + r.h - 3);
         const left = platforms.find(r => Math.abs(b.left - (r.x + r.w)) < 12 && b.bottom > r.y + 3 && b.top < r.y + r.h - 3);
-        if (ceiling && (this.surface !== null || input.y < -0.3)) this.attach('ceiling', ceiling);
+        if (ceiling && (this.surface !== null || input.y < -0.3 || input.jumpHeld)) this.attach('ceiling', ceiling);
         else if (right && (this.surface === 'right' || input.x > 0.3)) this.attach('right', right);
         else if (left && (this.surface === 'left' || input.x < -0.3)) this.attach('left', left);
         else if (this.surface && this.attachment) {
@@ -197,6 +202,11 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
         else if (this.surface === 'left') this.visual.setPosition(this.body.left, this.centerY).setAngle(90);
         else if (this.surface === 'ceiling') this.visual.setPosition(this.centerX, this.body.top).setAngle(180).setFlipX(this.facing > 0);
         else this.visual.setPosition(this.centerX, this.feet).setAngle(state === 'Death' ? -80 * this.facing : state === 'Hurt' ? -8 * this.facing : 0);
+        if (state === 'LedgeGrab' && this.ledge) {
+            // Each raised-arm pose has a different helmet baseline. Keep the head at the lip.
+            const helmets: Record<number, number> = this.form === 0 ? { 12: 70, 13: 76, 14: 79, 15: 83 } : { 12: 72, 13: 75, 14: 78, 15: 82 };
+            this.visual.y = this.ledge.y + (150 - (helmets[Number(this.visual.frame.name)] ?? 78));
+        }
         if (replenishing) this.visual.setTint(0xa2ffe4); else if (oxygenLow && Math.sin(this.elapsed * 7) > 0.4) this.visual.setTint(0xe49b9a); else this.visual.clearTint();
     }
 }
