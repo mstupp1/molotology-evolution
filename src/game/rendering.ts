@@ -5,6 +5,8 @@ import type { Progress } from './model';
 import type { Player } from './systems/Player';
 import { Atmosphere, softTexture } from './atmosphere';
 import { Flicker, roomDarkness } from './lighting';
+import { WATERLINE } from './water';
+const WATER_DRAINED = WATERLINE.drained, WATER_FLOODED = WATERLINE.flooded;
 
 /** In-world labels (door names, stations, pickups) use the same inscriptional capitals as the interface. */
 export const textStyle = (size = 16, color = '#b9ccca'): Phaser.Types.GameObjects.Text.TextStyle => ({ fontFamily: 'Cinzel, Georgia, serif', fontStyle: '600', fontSize: `${Math.max(13, size + 2)}px`, color, resolution: 3 });
@@ -68,6 +70,7 @@ const THEMES: Record<RoomId, RoomTheme> = {
     caldera: { tint: 0xd6a68d, fog: 0x351c26, accent: 0xffaa55, darkness: 0.4, rays: 3, rayColor: 0xff9b60, flip: true, coral: [0xffc090], chains: 2, warning: true },
     angler: { tint: 0x7a92bc, fog: 0x060c22, accent: 0xb5a4eb, darkness: 0.6, rays: 0, rayColor: 0x8090c0, flip: true, coral: [0x9aa8ff], chains: 3 },
     handcrab: { tint: 0xc4929c, fog: 0x2e1018, accent: 0xff8f7a, darkness: 0.58, rays: 1, rayColor: 0xffb0a0, flip: false, coral: [0xffa0a0], chains: 3 },
+    bilge: { tint: 0x93b8c0, fog: 0x0c2a34, accent: 0x8fe0e8, darkness: 0.5, rays: 1, rayColor: 0xa8e4ec, flip: true, coral: [0xc8f4ff], chains: 4 },
     hermit: { tint: 0xb99aa6, fog: 0x2a1424, accent: 0xffa88a, darkness: 0.58, rays: 1, rayColor: 0xffc0a8, flip: true, coral: [0xffb8a0], chains: 3 }
 };
 export function themeFor(id: RoomId): RoomTheme { return THEMES[id]; }
@@ -157,6 +160,15 @@ export class RoomView {
     private record: Phaser.GameObjects.Image;
     private tick = 0;
     private warnings: Phaser.GameObjects.Image[] = [];
+    private pockets: Rect[] = [];
+    private water: Phaser.GameObjects.Graphics;
+    private surface: Phaser.GameObjects.Graphics;
+    private drips?: Phaser.GameObjects.Particles.ParticleEmitter;
+    private dryZone = new Phaser.Geom.Rectangle(0, 0, 0, 0);
+    private time = 0;
+    /** World-space y of the water surface. -Infinity: the room is fully submerged. */
+    waterline = -Infinity;
+    valves: { x: number; y: number; wheel: Phaser.GameObjects.Container; lamp: Phaser.GameObjects.Image; glow: Phaser.GameObjects.Image }[] = [];
     /** Hanging lanterns are the room's fixed lights; each can gutter on its own. */
     private lanterns: { x: number; y: number; lamp: Phaser.GameObjects.Image; halo: Phaser.GameObjects.Image; flicker: Flicker }[] = [];
     private headlamp = new Flicker(Math.random, [10, 24], 0.2);
@@ -266,11 +278,19 @@ export class RoomView {
             const glow = scene.add.image(a.x, a.y, 'glow').setDisplaySize(120, 120).setAlpha(0.4).setDepth(11);
             scene.tweens.add({ targets: glow, alpha: 0.75, scale: glow.scale * 1.2, duration: 900, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
         }
+        // Air pockets read as a different medium: warm dry air walled by curtains of
+        // escaping bubbles, a trembling refraction seam and water dripping from above.
         for (const air of room.air) {
-            const pocket = scene.add.rectangle(air.x + air.w / 2, 440, air.w, 800, 0x93b2a4, 0.06).setDepth(-4);
-            scene.tweens.add({ targets: pocket, alpha: 0.6, duration: 2200, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
-            scene.add.image(air.x + air.w / 2, 30, 'fog').setDisplaySize(air.w, 220).setFlipY(true).setTint(0xd8f0e0).setAlpha(0.14).setDepth(-4);
-            plaque(scene, air.x + air.w / 2, 755, 'Air Pocket', 'air', 9);
+            scene.add.rectangle(air.x + air.w / 2, room.height / 2, air.w, room.height, 0x4a3214, 0.4).setDepth(-3);
+            const warm = scene.add.image(air.x + air.w / 2, 0, 'fog').setOrigin(0.5, 0).setDisplaySize(air.w, 520).setFlipY(true).setTint(0xf0d29a).setAlpha(0.22).setBlendMode(Phaser.BlendModes.ADD).setDepth(-3);
+            scene.tweens.add({ targets: warm, alpha: 0.34, duration: 2600, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+            for (const edge of [air.x, air.x + air.w]) {
+                if (edge <= 0 || edge >= room.width) continue;
+                scene.add.particles(edge, room.height - 150, 'bubble', { x: { min: -14, max: 14 }, lifespan: { min: 3200, max: 5200 }, speedY: { min: -230, max: -150 }, speedX: { min: -10, max: 10 }, scale: { min: 0.3, max: 0.95 }, alpha: { start: 0.85, end: 0 }, frequency: 45 }).setDepth(19);
+            }
+            scene.add.particles(0, 0, 'dot', { x: { min: air.x + 30, max: air.x + air.w - 30 }, y: { min: 0, max: 40 }, lifespan: 1500, speedY: { min: 380, max: 520 }, scaleX: 0.25, scaleY: { min: 0.6, max: 1.1 }, tint: 0xbfe8ef, alpha: { start: 0.55, end: 0.1 }, frequency: 260 }).setDepth(18);
+            this.pockets.push(air);
+            plaque(scene, air.x + air.w / 2, 755, 'Air Pocket · Breathe', 'air', 9);
         }
         for (const d of room.doors) {
             const unlocked = meetsRequirement(d.requires, progress);
@@ -315,10 +335,19 @@ export class RoomView {
         // Drifting bubbles and marine snow fill the water column.
         scene.add.particles(0, 0, 'bubble', {
             x: { min: 0, max: room.width }, y: { min: 320, max: 1000 },
-            lifespan: 6000, speedY: { min: -55, max: -25 }, speedX: { min: -6, max: 6 }, scale: { min: 0.25, max: 0.75 }, alpha: { start: 0.55, end: 0 }, frequency: 160, quantity: 1
+            lifespan: 6000, speedY: { min: -55, max: -25 }, speedX: { min: -6, max: 6 }, scale: { min: 0.25, max: 0.75 }, alpha: { start: 0.55, end: 0 }, frequency: 160, quantity: 1,
+            // Bubbles burst when they reach air: an air pocket or the surface of a drained chamber.
+            deathZone: [...this.pockets.map(r => ({ type: 'onEnter' as const, source: new Phaser.Geom.Rectangle(r.x, r.y, r.w, r.h) })), { type: 'onEnter', source: this.dryZone }]
         }).setDepth(19);
+        this.water = scene.add.graphics().setDepth(-3);
+        this.surface = scene.add.graphics().setDepth(26);
+        if (room.flood) {
+            this.drips = scene.add.particles(0, 0, 'dot', { x: { min: 0, max: room.width }, y: { min: 0, max: 30 }, lifespan: 1700, speedY: { min: 380, max: 560 }, scaleX: 0.25, scaleY: { min: 0.6, max: 1.2 }, tint: 0xbfe8ef, alpha: { start: 0.6, end: 0.1 }, frequency: 70, emitting: false }).setDepth(18);
+            for (const v of room.flood.valves) this.valves.push(this.valve(v.x, v.y));
+        }
         scene.add.image(GAME_WIDTH / 2, GAME_HEIGHT, 'fog').setOrigin(0.5, 1).setDisplaySize(GAME_WIDTH, 240).setScrollFactor(0).setTint(theme.fog).setAlpha(0.55).setDepth(28);
         this.atmosphere = new Atmosphere(scene, room, theme, room.heat?.length ? [wreck, ribs, ...girders] : []);
+        this.atmosphere.dry = (x, y) => y < this.waterline || this.pockets.some(r => x >= r.x && x <= r.x + r.w);
         const key = 'darkness'; if (scene.textures.exists(key)) scene.textures.remove(key);
         this.darkness = scene.textures.createCanvas(key, 640, 360)!;
         this.overlay = scene.add.image(0, 0, key).setOrigin(0).setDisplaySize(GAME_WIDTH, GAME_HEIGHT).setScrollFactor(0).setDepth(30);
@@ -327,6 +356,30 @@ export class RoomView {
             // Out of focus, like a lens pulled to the diver's plane.
             scene.add.image(x, -20, softTexture(scene, 'prop-7', 5)).setOrigin(0.5, 0).setScrollFactor(1.25, 1).setDisplaySize(rnd.between(60, 90), rnd.between(200, 330)).setTint(0x03080c).setAlpha(0.92).setDepth(29);
         }
+    }
+    /** An iron sluice wheel on a riser pipe, with a lamp that shows which way the water is set. */
+    private valve(x: number, floor: number) {
+        const scene = this.scene, g = scene.add.graphics().setDepth(9);
+        g.fillStyle(0x0b1418, 1).fillRect(x - 13, 0, 26, floor - 120).fillStyle(0x2c3d3e, 1).fillRect(x - 9, 0, 18, floor - 120);
+        g.fillStyle(0x6f8079, 0.35).fillRect(x - 6, 0, 3, floor - 120);
+        for (let y = 140; y < floor - 140; y += 170) g.fillStyle(0x10191c, 1).fillRect(x - 17, y, 34, 12).fillStyle(0x8a9a8e, 0.5).fillCircle(x - 11, y + 6, 2).fillCircle(x + 11, y + 6, 2);
+        g.fillStyle(0x10191c, 1).fillRect(x - 30, floor - 124, 60, 124).lineStyle(2, 0x6f8079, 0.6).strokeRect(x - 30, floor - 124, 60, 124);
+        g.fillStyle(0x1a2629, 1).fillRect(x - 22, floor - 116, 44, 108);
+        const rim = scene.add.graphics();
+        rim.lineStyle(7, 0x0a0e10, 1).strokeCircle(0, 0, 34).lineStyle(4, 0x9b7a4a, 1).strokeCircle(0, 0, 33).lineStyle(1, 0xe1bb7a, 0.6).strokeCircle(0, 0, 31);
+        for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; rim.lineStyle(4, 0x7c6040, 1).lineBetween(0, 0, Math.cos(a) * 31, Math.sin(a) * 31); }
+        rim.fillStyle(0x0a0e10, 1).fillCircle(0, 0, 8).fillStyle(0xc9a668, 1).fillCircle(0, 0, 5);
+        for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + Math.PI / 6; rim.fillStyle(0xd8b780, 1).fillCircle(Math.cos(a) * 33, Math.sin(a) * 33, 3); }
+        const wheel = scene.add.container(x, floor - 160, [rim]).setDepth(10);
+        const glow = scene.add.image(x, floor - 80, 'glow').setDisplaySize(170, 170).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.55).setDepth(8);
+        const lamp = scene.add.image(x, floor - 80, 'softlight').setDisplaySize(26, 26).setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
+        scene.tweens.add({ targets: glow, alpha: 0.3, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+        plaque(scene, x, floor - 228, 'Sluice Valve', 'air', 10);
+        return { x, y: floor, wheel, lamp, glow };
+    }
+    /** Spin the wheels when a valve is thrown. */
+    turnValves(flooding: boolean): void {
+        for (const v of this.valves) this.scene.tweens.add({ targets: v.wheel, angle: v.wheel.angle + (flooding ? -540 : 540), duration: 1600, ease: 'Cubic.Out' });
     }
     breakObstacle(id: string): void {
         const i = this.breakables.findIndex(b => b.data.id === id); if (i < 0) return;
@@ -343,6 +396,7 @@ export class RoomView {
             const level = l.flicker.update(dt);
             l.halo.setVisible(level > 0.5); l.lamp.setTint(level > 0.5 ? 0xffffff : 0x4a5258);
         }
+        this.drawWater(dt, camera);
         this.atmosphere.update(dt, camera, { x: p.centerX - camera.scrollX, y: p.centerY - 28 - camera.scrollY, angle, reach: 540, spread: 0.37, halo: 200, power });
         if (this.tick % 2) return;
         const ctx = this.darkness.context;
@@ -370,12 +424,59 @@ export class RoomView {
         if (this.room.station) points.push({ x: this.room.station.x, y: this.room.station.y - 65, r: 85 });
         for (const d of this.room.doors) if (!d.hidden) points.push({ x: d.x, y: d.y - 60, r: 70 });
         for (const l of this.lanterns) if (l.flicker.level > 0.5) points.push({ x: l.x, y: l.y, r: 95 });
+        for (const a of this.pockets) points.push({ x: a.x + a.w / 2, y: 520, r: Math.min(150, a.w / 4) });
+        for (const v of this.valves) points.push({ x: v.x, y: v.y - 120, r: 70 });
         for (const point of points) {
             const lx = (point.x - camera.scrollX) / 2, ly = (point.y - camera.scrollY) / 2, r = point.r ?? 65;
             if (lx < -r || lx > 640 + r || ly < -r || ly > 360 + r) continue;
             const glow = ctx.createRadialGradient(lx, ly, 0, lx, ly, r); glow.addColorStop(0, 'rgba(255,255,255,0.65)'); glow.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = glow; ctx.fillRect(lx - r, ly - r, r * 2, r * 2);
         }
         this.darkness.refresh();
+    }
+    /**
+     * The water body and its surface. Below the line the chamber is tinted by the
+     * sea; above it, in a drained room, the air is dry, warm and dripping.
+     */
+    private drawWater(dt: number, camera: Phaser.Cameras.Scene2D.Camera): void {
+        this.time += dt;
+        const t = this.time, w = this.water, s = this.surface, room = this.room;
+        w.clear(); s.clear();
+        const left = camera.scrollX - 20, right = camera.scrollX + GAME_WIDTH + 20;
+        // Seams where the air pockets meet the sea tremble like a lens.
+        for (const a of this.pockets) for (const edge of [a.x, a.x + a.w]) {
+            if (edge <= 0 || edge >= room.width || edge < left - 40 || edge > right + 40) continue;
+            const inward = edge === a.x ? 1 : -1;
+            s.fillStyle(0x9fe8f0, 0.07).fillRect(inward > 0 ? edge - 26 : edge, 0, 26, room.height);
+            for (const [width, color, alpha, phase] of [[5, 0x7fd0dc, 0.18, 0], [2, 0xd8fbff, 0.55, 1.7]] as const) {
+                s.lineStyle(width, color, alpha).beginPath();
+                for (let y = camera.scrollY - 20; y <= camera.scrollY + GAME_HEIGHT + 20; y += 16) {
+                    const x = edge + Math.sin(y * 0.031 + t * 2.3 + phase) * 3 + Math.sin(y * 0.012 - t * 1.1) * 2;
+                    if (y === camera.scrollY - 20) s.moveTo(x, y); else s.lineTo(x, y);
+                }
+                s.strokePath();
+            }
+        }
+        if (!Number.isFinite(this.waterline)) { this.dryZone.setTo(0, 0, 0, 0); return; }
+        const line = this.waterline;
+        this.atmosphere.wet = Phaser.Math.Clamp((camera.scrollY + GAME_HEIGHT - line) / GAME_HEIGHT, 0, 1);
+        this.dryZone.setTo(0, -200, room.width, line + 200);
+        // Dry chamber: warm stale air, falling drips. The sea below keeps its cold tint.
+        w.fillStyle(0x3a2810, 0.42).fillRect(left, -50, right - left, line + 50);
+        w.fillStyle(0x0f4a58, 0.22).fillRect(left, line, right - left, room.height - line);
+        if (this.drips) this.drips.emitting = line > 300;
+        const wave = (x: number) => line + Math.sin(x * 0.021 + t * 2) * 3 + Math.sin(x * 0.047 - t * 1.4) * 2;
+        // A soft band of churned light just beneath the surface, then the bright meniscus.
+        s.fillStyle(0x7fd8e0, 0.1).fillRect(left, line, right - left, 22);
+        s.fillStyle(0x0c3440, 0.1).fillRect(left, line, right - left, room.height - line);
+        for (const [width, color, alpha, offset] of [[8, 0x5fb8c4, 0.2, 3], [3, 0xc8f6ff, 0.75, 0], [1, 0xffffff, 0.6, -2]] as const) {
+            s.lineStyle(width, color, alpha).beginPath();
+            for (let x = left; x <= right; x += 14) { if (x === left) s.moveTo(x, wave(x) + offset); else s.lineTo(x, wave(x) + offset); }
+            s.strokePath();
+        }
+        for (const v of this.valves) {
+            const flooded = line < (WATER_DRAINED + WATER_FLOODED) / 2;
+            v.lamp.setTint(flooded ? 0x7fe8ff : 0xffb060); v.glow.setTint(flooded ? 0x5fc8e0 : 0xf09040);
+        }
     }
     destroy(): void { this.atmosphere.destroy(); this.overlay.destroy(); this.record.destroy(); this.platforms.clear(true, true); this.platforms.destroy(); }
 }

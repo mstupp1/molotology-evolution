@@ -1,5 +1,5 @@
 import type { Evolution } from './constants';
-export type RoomId = 'hull' | 'bell' | 'cargo' | 'armory' | 'rigging' | 'infirmary' | 'pressure' | 'molt' | 'ballast' | 'quarters' | 'chapel' | 'furnace' | 'caldera' | 'angler' | 'handcrab' | 'hermit';
+export type RoomId = 'hull' | 'bell' | 'cargo' | 'armory' | 'rigging' | 'infirmary' | 'pressure' | 'molt' | 'ballast' | 'quarters' | 'chapel' | 'furnace' | 'caldera' | 'angler' | 'handcrab' | 'hermit' | 'bilge';
 export type EnemyKind = 'urchin' | 'jellyfish' | 'octopus' | 'shark' | 'handcrab' | 'hermit' | 'angler';
 export type Requirement = 'harpoon' | 'pressure' | 'dash' | 'heat' | 'key' | 'scuttle';
 export type PickupKind = 'harpoon' | 'breach' | 'infestation' | 'key' | 'health';
@@ -12,6 +12,8 @@ export interface Room {
     id: RoomId; name: string; subtitle: string; map: [number, number]; width: number; height: number;
     color: number; platforms: Rect[]; doors: Door[]; anchors: { x: number; y: number }[];
     air: Rect[]; station?: { x: number; y: number }; pickups: Pickup[]; enemies: EnemySpawn[]; pressure?: boolean; volcanic?: boolean; heat?: Rect[]; obstacles?: Obstacle[]; log: string;
+    /** Sluice valves that flood or drain the whole chamber. */
+    flood?: { valves: { x: number; y: number }[]; startFlooded: boolean };
 }
 const WIDTH = 3200;
 const platform = (x: number, y: number, w: number, h = 28): Rect => ({ x, y, w, h });
@@ -24,7 +26,7 @@ function room(id: RoomId, name: string, map: [number, number], patch: Partial<Ro
 }
 export const ROOMS: Record<RoomId, Room> = {
     hull: room('hull', 'The Broken Hull', [0, 2], {
-        subtitle: '01 / COLLAPSED ENTRY · 2,840 M', station: { x: 300, y: 850 }, doors: [door('hull', 'bell', 3040, 'AIR BELL')],
+        subtitle: '01 / COLLAPSED ENTRY · 2,840 M', station: { x: 300, y: 850 }, doors: [door('hull', 'bell', 3040, 'AIR BELL'), door('hull', 'bilge', 960, 'BILGE LOCKS')],
         enemies: [mob('hull', 'urchin', 1550), mob('hull', 'jellyfish', 2350, 630)],
         log: 'The surface went quiet six hours ago. Something inside the wreck is still breathing.'
     }),
@@ -115,6 +117,15 @@ export const ROOMS: Record<RoomId, Room> = {
         subtitle: '14 / THE LAST LIGHT', color: 0x172137, doors: [door('angler', 'caldera', 100, 'CALDERA VAULT')],
         enemies: [mob('angler', 'angler', 2260, 640)], anchors: [{ x: 800, y: 400 }, { x: 2400, y: 400 }],
         log: 'A lantern hangs in the darkness. Then the darkness opens its mouth.'
+    }),
+    bilge: room('bilge', 'The Bilge Locks', [0, 3], {
+        subtitle: 'SIDE CHAMBER / THE SHIP STILL BREATHES', color: 0x1a3440,
+        platforms: [platform(0, 850, WIDTH, 174), platform(760, 640, 260), platform(1180, 440, 300), platform(1660, 250, 320), platform(2380, 660, 280)],
+        flood: { startFlooded: true, valves: [{ x: 430, y: 850 }, { x: 2920, y: 850 }] },
+        doors: [door('bilge', 'hull', 100, 'BROKEN HULL')],
+        pickups: [{ id: 'pearl:bilge', kind: 'health', x: 1820, y: 205 }],
+        enemies: [mob('bilge', 'shark', 2100, 600), mob('bilge', 'jellyfish', 1330, 610), mob('bilge', 'jellyfish', 2600, 470)],
+        log: 'SLUICE LOG — Turn a valve to drain the locks: the air is yours and the swimmers choke on the iron. Turn it again and the sea returns, and with it a buoyancy no stair could give you.'
     }),
     handcrab: room('handcrab', 'The Unlisted Diver', [2, 0], {
         subtitle: 'HIDDEN CHAMBER / SALVAGE TEAM 03', color: 0x3b293a, doors: [door('handcrab', 'cargo', 100, 'CARGO HOLD')], enemies: [mob('handcrab', 'handcrab', 2100)],

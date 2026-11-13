@@ -164,7 +164,7 @@
 .survey-map { display: block; margin: 8px 0 6px auto; background: rgba(5, 7, 9, 0.72); box-shadow: 0 0 0 1px rgba(201, 166, 104, 0.32), 0 4px 14px rgba(0, 0, 0, 0.7); }
 .survey-env { font-size: 17px; color: var(--ash); text-shadow: var(--shadow); }
 .survey-env .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: 2px; background: currentColor; box-shadow: 0 0 8px currentColor; }
-.env-water { color: #9fc4c4; } .env-air { color: #b8eccd; } .env-pressure { color: #c9b0ff; } .env-heat { color: var(--ember); }
+.env-water { color: #9fc4c4; } .env-air { color: #b8eccd; } .env-dry { color: #e8cf9a; } .env-pressure { color: #c9b0ff; } .env-heat { color: var(--ember); }
 .corner-hints { position: absolute; right: 36px; bottom: 26px; font-size: 16px; text-shadow: var(--shadow); opacity: 0.9; pointer-events: auto; cursor: pointer; }
 
 .bottom-stack { position: absolute; left: 0; right: 0; bottom: 26px; display: flex; flex-direction: column; align-items: center; gap: 14px; }

@@ -105,6 +105,10 @@ export class Atmosphere {
         this.layers.push({ graphics, motes, parallax, color, alpha, lit, round });
     }
 
+    /** Marine snow only drifts through water; air pockets and drained chambers stay clear. */
+    dry: (x: number, y: number) => boolean = () => false;
+    /** 0 to 1: how much of the view is underwater. Caustics fade with it. */
+    wet = 1;
     update(dt: number, camera: Phaser.Cameras.Scene2D.Camera, beam: Beam): void {
         this.time += dt; this.frame++;
         const w = GAME_WIDTH + WRAP_PAD * 2, h = GAME_HEIGHT + WRAP_PAD * 2;
@@ -115,6 +119,7 @@ export class Atmosphere {
                 const sway = Math.sin((this.time * 1000 + m.phase + m.y) * 0.004) * 6 * layer.parallax;
                 const sx = wrap(m.x - camera.scrollX * layer.parallax + sway, w) - WRAP_PAD;
                 const sy = wrap(m.y - camera.scrollY * layer.parallax, h) - WRAP_PAD;
+                if (layer.parallax >= 1 && this.dry(sx + camera.scrollX, sy + camera.scrollY)) continue;
                 const light = beamIntensity(beam, sx, sy);
                 const a = Math.min(0.9, layer.alpha + light * layer.lit);
                 if (a < 0.02) continue;
@@ -127,6 +132,9 @@ export class Atmosphere {
         this.caustics.forEach((sheet, i) => {
             const dir = i ? -1 : 1;
             sheet.setTilePosition(camera.scrollX * 0.9 / sheet.tileScaleX + this.time * 4 * dir, camera.scrollY * 0.9 / sheet.tileScaleY + this.time * 2.5);
+            sheet.setVisible(this.wet > 0.05);
+            if (sheet.getData('alpha') === undefined) sheet.setData('alpha', sheet.alphaTopLeft);
+            const a = Number(sheet.getData('alpha')) * this.wet; sheet.setAlpha(a, a, 0, 0);
         });
         // Grain jumps every other frame, snapped to its 2px cells.
         if (this.frame % 2 === 0) this.grain.setTilePosition(Phaser.Math.Between(0, 127) * 2, Phaser.Math.Between(0, 127) * 2);
