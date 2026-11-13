@@ -5,6 +5,7 @@ import type { Player } from './Player';
 import { isLostDiver, isSwimmer } from '../mechanics';
 import { COMBAT, hitDamage, lanternRect, tentacleTip } from '../combat';
 import { AttackFx, type FxLight } from './AttackFx';
+import { stranded as aboveWater } from '../water';
 
 export const ENEMY_INFO: Record<EnemyKind, { frame: number; width: number; height: number; hp: number; damage: number; name: string }> = {
     urchin: { frame: 0, width: 74, height: 74, hp: 48, damage: 12, name: 'Spine Urchin' },
@@ -24,6 +25,8 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
     target = new Phaser.Math.Vector2(); home = new Phaser.Math.Vector2(); cycles = 0; stun = 0; flash = 0;
     attack: 'lunge' | 'frenzy' | 'pulse' | 'leap' = 'lunge';
     duration = 0.85; passes = 0; pulseHit = false;
+    /** A swimmer left above the waterline: it falls, flops and can only hurt on contact. */
+    stranded = false; flop = 0.6; readonly baseScale: { x: number; y: number };
     constructor(scene: Phaser.Scene, readonly spec: EnemySpawn, swimming: boolean) {
         super(scene, spec.x, spec.y, `enemy-${spec.visual ?? spec.kind}`, 0);
         scene.add.existing(this); scene.physics.add.existing(this);
@@ -31,6 +34,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         const bounds = scene.cache.json.get('motion-manifest').enemies[spec.visual ?? spec.kind].referenceBounds as number[];
         const w = bounds[2] - bounds[0], h = bounds[3] - bounds[1];
         this.setScale(info.width / w, info.height / h).setDepth(18).setCollideWorldBounds(true);
+        this.baseScale = { x: this.scaleX, y: this.scaleY };
         this.body.setSize(w * 0.67, h * 0.66).setOffset(128 - w * 0.335, 128 - h * 0.33);
         this.play(`enemy-${spec.visual ?? spec.kind}-move`);
         this.body.allowGravity = !swimming; this.body.gravity.y = swimming ? 0 : 430;
@@ -61,6 +65,7 @@ export class EnemySystem {
     graphics: Phaser.GameObjects.Graphics;
     readonly fx: AttackFx;
     private collider: Phaser.Physics.Arcade.Collider;
+    private strandedCollider: Phaser.Physics.Arcade.Collider;
     private tentacles = new Map<Enemy, Phaser.GameObjects.Image>();
     constructor(scene: Phaser.Scene, platforms: Phaser.Physics.Arcade.StaticGroup, specs: EnemySpawn[], defeated: string[], private geometry: Rect[], private damagePlayer: (damage: number, fromX: number) => void, private onKill: (enemy: Enemy) => void) {
         this.projectiles = scene.physics.add.group({ defaultKey: 'spark', maxSize: 18, allowGravity: false });
@@ -77,6 +82,8 @@ export class EnemySystem {
             const enemy = actor as Enemy, floor = terrain as Phaser.Physics.Arcade.Image;
             return !isLostDiver(enemy.kind) || (floor.body?.y ?? 0) >= 850;
         });
+        // Out of water, swimmers fall onto the iron like everything else.
+        this.strandedCollider = scene.physics.add.collider(this.list.filter(e => isSwimmer(e.kind) && !e.boss), platforms, undefined, actor => (actor as Enemy).stranded);
     }
     blocked(ax: number, ay: number, bx: number, by: number): boolean { return this.geometry.some(r => segmentRect(ax, ay, bx, by, r) !== null); }
     shoot(e: Enemy, player: Player, spread = 0): void {
@@ -95,7 +102,44 @@ export class EnemySystem {
         const glow = this.list.filter(e => e.active && (e.kind === 'jellyfish' || e.kind === 'angler')).map(e => { const spot = e.weakSpot; return { x: spot ? spot.x + spot.w / 2 : e.x, y: spot ? spot.y + spot.h / 2 : e.y - 25, r: spot ? 150 : 70 }; });
         return [...glow, ...this.fx.lights()];
     }
-    update(dt: number, player: Player): void {
+    /** Swimmers above the surface lose the water: gravity takes them and they flop. Returns true while stranded. */
+    private strand(e: Enemy, dt: number, player: Player, waterline: number): boolean {
+        if (!isSwimmer(e.kind) || e.boss) return false;
+        const out = aboveWater(e.body.top, waterline, e.stranded);
+        if (out !== e.stranded) {
+            e.stranded = out; e.mode = 'patrol'; e.timer = 1.2; e.clearTint();
+            e.body.allowGravity = out; e.body.gravity.y = out ? 900 : 0;
+            if (!out) { e.setVelocity(e.body.velocity.x * 0.3, Math.min(0, e.body.velocity.y) * 0.3).setAngle(0).setScale(e.baseScale.x, e.baseScale.y); e.anims.timeScale = 1; }
+            else { e.anims.timeScale = 0.35; this.fx.burst(e.x, e.y, 0x9fe8ff, 6, 140); }
+        }
+        if (!out) return false;
+        e.elapsed += dt;
+        const dx = player.centerX - e.x, onFloor = e.body.blocked.down;
+        if (e.stun > 0) { e.stun -= dt; return true; }
+        if (e.flash > 0) { e.flash -= dt; if (e.flash <= 0) e.clearTint(); }
+        const shark = e.kind === 'shark';
+        if (onFloor) {
+            e.setVelocityX(e.body.velocity.x * Math.pow(0.02, dt));
+            e.flop -= dt;
+            // Sharks thrash toward whatever they can sense; jellyfish only twitch.
+            if (e.flop <= 0) {
+                const toward = Math.abs(dx) < 650 ? Math.sign(dx) : Phaser.Math.RND.sign();
+                if (shark) e.setVelocity(toward * Phaser.Math.Between(70, 190), -Phaser.Math.Between(240, 380));
+                else e.setVelocity(Phaser.Math.Between(-40, 40), -Phaser.Math.Between(90, 150));
+                e.flop = shark ? Phaser.Math.FloatBetween(0.6, 1.5) : Phaser.Math.FloatBetween(1.6, 3.2);
+            }
+            // Lying on its side, gasping.
+            const gasp = Math.sin(e.elapsed * (shark ? 9 : 4));
+            e.setAngle(shark ? 14 * (e.flipX ? -1 : 1) + gasp * 6 : gasp * 4);
+            e.setScale(e.baseScale.x * (shark ? 1 : 1.18 + gasp * 0.04), e.baseScale.y * (shark ? 1 + gasp * 0.05 : 0.62));
+        } else {
+            e.setAngle(Math.sin(e.elapsed * (shark ? 17 : 8)) * (shark ? 38 : 12));
+            e.setScale(e.baseScale.x, e.baseScale.y);
+        }
+        if (Math.abs(dx) > 4) e.setFlipX(dx > 0);
+        return true;
+    }
+    update(dt: number, player: Player, waterline = -Infinity): void {
         this.graphics.clear(); this.fx.begin(dt);
         for (const e of this.list) {
             this.tentacles.get(e)?.setVisible(false);
@@ -104,6 +148,13 @@ export class EnemySystem {
                 const b = e.scene.physics.world.bounds;
                 const x = Phaser.Math.Clamp(e.x, e.displayWidth / 2, b.width - e.displayWidth / 2), y = Phaser.Math.Clamp(e.y, e.displayHeight / 2, b.height - e.displayHeight / 2);
                 if (x !== e.x || y !== e.y) { e.setPosition(x, y); e.body.updateFromGameObject(); }
+            }
+            if (this.strand(e, dt, player, waterline)) {
+                const animation = `enemy-${e.spec.visual ?? e.kind}-move`;
+                if (e.anims.currentAnim?.key !== animation) e.play(animation);
+                if (overlaps(player.body, e.body)) this.damagePlayer(Math.round(ENEMY_INFO[e.kind].damage * 0.75), e.x);
+                this.healthBar(e);
+                continue;
             }
             e.elapsed += dt; e.timer -= dt;
             const dx = player.centerX - e.x, dy = player.centerY - e.y, distance = Math.hypot(dx, dy);
@@ -184,10 +235,7 @@ export class EnemySystem {
             if (e.anims.currentAnim?.key !== animation) e.play(animation);
             const harmless = e.kind === 'urchin' || e.kind === 'angler' && e.mode === 'recover';
             if (!harmless && Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(player.body.x, player.body.y, player.body.width, player.body.height), new Phaser.Geom.Rectangle(e.body.x, e.body.y, e.body.width, e.body.height))) this.damagePlayer(ENEMY_INFO[e.kind].damage, e.x);
-            if (e.health < e.maxHealth && !e.boss) {
-                this.graphics.fillStyle(0x0a101c).fillRect(e.x - 26, e.y - e.displayHeight / 2 - 14, 52, 4);
-                this.graphics.fillStyle(0xe5877c).fillRect(e.x - 26, e.y - e.displayHeight / 2 - 14, 52 * e.health / e.maxHealth, 4);
-            }
+            this.healthBar(e);
         }
         this.projectiles.getChildren().forEach(child => {
             const p = child as Phaser.Physics.Arcade.Image;
@@ -199,6 +247,11 @@ export class EnemySystem {
             this.fx.projectile(p, p.getData('electric') === true);
         });
         this.fx.end(dt);
+    }
+    private healthBar(e: Enemy): void {
+        if (e.health >= e.maxHealth || e.boss) return;
+        this.graphics.fillStyle(0x0a101c).fillRect(e.x - 26, e.y - e.displayHeight / 2 - 14, 52, 4);
+        this.graphics.fillStyle(0xe5877c).fillRect(e.x - 26, e.y - e.displayHeight / 2 - 14, 52 * e.health / e.maxHealth, 4);
     }
     private fizzle(p: Phaser.Physics.Arcade.Image): void {
         this.fx.burst(p.x, p.y, p.getData('electric') ? 0x9fe8ff : 0xc8b4ff, 6, 180); this.fx.dropTrail(p); p.disableBody(true, true);
@@ -227,5 +280,8 @@ export class EnemySystem {
         }
         return { damage, weak };
     }
-    destroy(): void { this.collider.destroy(); this.tentacles.forEach(s => s.destroy()); this.tentacles.clear(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); this.fx.destroy(); }
+    destroy(): void { this.collider.destroy(); this.strandedCollider.destroy(); this.tentacles.forEach(s => s.destroy()); this.tentacles.clear(); this.list.forEach(e => e.destroy()); this.list = []; this.projectiles.clear(true, true); this.projectiles.destroy(); this.graphics.destroy(); this.fx.destroy(); }
+}
+function overlaps(a: Phaser.Physics.Arcade.Body, b: Phaser.Physics.Arcade.Body): boolean {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }

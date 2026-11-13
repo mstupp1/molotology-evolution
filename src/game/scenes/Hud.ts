@@ -26,6 +26,7 @@ const GAMEPAD_CONTROLS: ControlGroup[][] = [
 const ENVIRONMENT: Record<GameSnapshot['environment'], (evolution: number) => string> = {
     water: () => 'Submerged · 2,840 m',
     air: () => 'Air pocket · oxygen returning',
+    dry: () => 'Drained chamber · breathing freely',
     pressure: () => 'High pressure · shell holds',
     heat: evolution => evolution === 2 ? 'Extreme heat · carapace endures' : 'Extreme heat · shell required'
 };
@@ -178,7 +179,7 @@ export class Hud extends Phaser.Scene {
             this.oxygenBar.ticks.style.backgroundImage = 'repeating-linear-gradient(90deg, transparent 0 63px, rgba(0,0,0,0.75) 63px 65px)';
         }
         const hp = `${Math.ceil(data.health)}<span class="of"> / ${data.maxHealth}</span>`;
-        const o2 = `${Math.ceil(data.oxygen)}<span class="of">s</span>${data.environment === 'air' ? '<span class="tag">▲ Breathing</span>' : ''}`;
+        const o2 = `${Math.ceil(data.oxygen)}<span class="of">s</span>${data.environment === 'air' || data.environment === 'dry' ? '<span class="tag">▲ Breathing</span>' : ''}`;
         if (this.hpReadout.dataset.html !== hp) { this.hpReadout.dataset.html = hp; this.hpReadout.innerHTML = hp; }
         if (this.o2Readout.dataset.html !== o2) { this.o2Readout.dataset.html = o2; this.o2Readout.innerHTML = o2; }
         toggle(this.hpReadout, 'critical', lowHealth); toggle(this.vitality.root, 'critical', lowHealth);

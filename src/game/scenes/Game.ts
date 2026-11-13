@@ -10,6 +10,7 @@ import { Harpoon, type HarpoonEvent } from '../systems/Harpoon';
 import { BubbleShot } from '../systems/BubbleShot';
 import { abilities, meleeReach, rangedWeapon } from '../mechanics';
 import { overlaps } from '../combat';
+import { breathable, isFlooded, stepWaterline, targetWaterline, toggleFlood } from '../water';
 
 interface StartData { progress?: Progress; room?: RoomId; from?: RoomId; survival?: Survival }
 export class Game extends Phaser.Scene {
@@ -44,6 +45,8 @@ export class Game extends Phaser.Scene {
     private firstVisit = false;
     private bossIntroduced = false;
     private climbedWall = false;
+    private waterline = -Infinity;
+    private breathing = false;
     private onCommand = (command: UiCommand) => this.command(command);
     private onBlur = () => { if (!this.dead && !this.transitioning) this.game.events.emit(GameEvent.Command, { type: 'pause', mode: 'pause' } satisfies UiCommand); };
 
@@ -55,7 +58,7 @@ export class Game extends Phaser.Scene {
         this.survival = data.survival ?? new Survival(maxHealth(this.progress)); this.survival.maxHealth = maxHealth(this.progress); this.combo = new Combo();
         this.paused = false; this.transitioning = false; this.dead = false; this.refill = false; this.climbedWall = false;
         this.hitstop = 0; this.trailTimer = 0; this.bubbleTimer = 0; this.lookahead = 0; this.bossIntroduced = false;
-        this.snapshotTimer = 0; this.prompt = ''; this.lowOxygenWarned = false;
+        this.snapshotTimer = 0; this.prompt = ''; this.lowOxygenWarned = false; this.breathing = false;
     }
     create(): void {
         smoothText(this);
@@ -64,6 +67,7 @@ export class Game extends Phaser.Scene {
         this.firstVisit = !this.progress.explored.includes(this.roomId);
         if (this.firstVisit) this.progress.explored.push(this.roomId);
         this.view = new RoomView(this, this.room, this.progress);
+        this.view.waterline = this.waterline = targetWaterline(this.room, this.progress.opened);
         this.physics.world.setBounds(0, 0, this.room.width, this.room.height);
         const entry = this.from ? this.room.doors.find(d => d.to === this.from) : undefined;
         const spawnX = entry ? Phaser.Math.Clamp(entry.x + (entry.x > 1600 ? -120 : 120), 80, this.room.width - 80) : this.room.station?.x ?? 250;
@@ -202,6 +206,13 @@ export class Game extends Phaser.Scene {
             }
             return;
         }
+        const valve = this.view.valves.find(v => Math.abs(v.x - p.centerX) < 90 && Math.abs(v.y - p.feet) < 80);
+        if (valve) {
+            const flooded = isFlooded(this.room, this.progress.opened), moving = this.waterline !== targetWaterline(this.room, this.progress.opened);
+            this.prompt = moving ? (flooded ? 'THE SEA POURS IN' : 'THE CHAMBER DRAINS') : `[E / Y] ${flooded ? 'Turn the sluice · drain the chamber' : 'Turn the sluice · flood the chamber'}`;
+            if (pressed && !moving) this.throwValve(valve.x, valve.y);
+            return;
+        }
         const station = this.room.station;
         if (station && Math.abs(station.x - p.centerX) < 115 && Math.abs(station.y - p.feet) < 70) {
             this.prompt = this.refill ? 'OXYGEN REPLENISHING · CHECKPOINT SAVED' : '[E / Y] Refill oxygen · save';
@@ -220,6 +231,16 @@ export class Game extends Phaser.Scene {
             this.prompt = '[E / Y] Read the field record'; if (pressed) this.notice('FIELD RECORD · ' + this.room.name.toUpperCase(), this.room.log, 10000);
         }
     }
+    private throwValve(x: number, floor: number): void {
+        const flooding = toggleFlood(this.room, this.progress.opened);
+        this.view.turnValves(flooding); this.save();
+        this.soundEffect('door', 0.6, flooding ? -700 : -400); this.time.delayedCall(350, () => this.soundEffect('roar', 0.25, flooding ? -900 : -1200));
+        this.cameras.main.shake(1400, 0.0035);
+        this.puff(x, floor - 30, 16, 60);
+        const first = !this.registry.get('valve-explained'); this.registry.set('valve-explained', true);
+        if (flooding) this.notice('THE SEA RETURNS', first ? 'Water lifts you higher than any stair. The swimmers wake.' : 'The chamber floods.', first ? 4500 : 2200);
+        else this.notice('THE CHAMBER DRAINS', first ? 'The air is yours. Stranded swimmers thrash on the iron: still dangerous to touch, easy prey for a blade.' : 'The water falls away.', first ? 5500 : 2200);
+    }
     update(_time: number, delta: number): void {
         if (this.paused || this.dead || this.transitioning) return;
         // Hitstop: freeze the simulation for a few frames so impacts land with weight.
@@ -234,7 +255,13 @@ export class Game extends Phaser.Scene {
         const weapon = rangedWeapon(this.progress);
         if (weapon !== 'harpoon') this.harpoon.cancel();
         if (this.controls.gamepad && (input.map || input.pause)) { this.game.events.emit(GameEvent.Command, { type: 'pause', mode: input.map ? 'map' : 'pause' } satisfies UiCommand); return; }
-        const air = this.room.air.some(r => inside(p.centerX, p.centerY, r));
+        this.waterline = this.view.waterline = stepWaterline(this.waterline, targetWaterline(this.room, this.progress.opened), dt);
+        const air = breathable(this.room, p.centerX, p.centerY, this.waterline);
+        if (air !== this.breathing && Number.isFinite(this.waterline)) {
+            const surface = Math.abs(p.centerY - this.waterline) < 60;
+            if (surface) { this.puff(p.centerX, this.waterline, air ? 8 : 5, 30); this.soundEffect('land', 0.25, air ? 500 : 200); }
+        }
+        this.breathing = air;
         const busy = this.combo.active || this.harpoon.mode !== 'ready' || input.aim;
         const wasDashing = p.dashTime > 0;
         if (input.jump && this.harpoon.mode === 'pull') this.harpoon.release();
@@ -309,7 +336,7 @@ export class Game extends Phaser.Scene {
                 }
             }
         }
-        this.enemies.update(dt, p);
+        this.enemies.update(dt, p, this.waterline);
         if (!this.bossIntroduced) {
             const boss = this.enemies.list.find(e => e.boss && e.active && Math.abs(e.x - p.centerX) < 900);
             if (boss) {
@@ -372,7 +399,7 @@ export class Game extends Phaser.Scene {
             health: this.survival.health, maxHealth: this.survival.maxHealth, oxygen: this.survival.oxygen, evolution: this.progress.evolution, harpoon: this.progress.harpoon, key: this.progress.key, rangedWeapon: rangedWeapon(this.progress),
             room: this.roomId, roomName: this.room.name, explored: [...this.progress.explored], opened: [...this.progress.opened], defeated: [...this.progress.defeated],
             position: { x: this.player.centerX / this.room.width, y: this.player.centerY / this.room.height },
-            environment: this.room.volcanic ? 'heat' : this.room.air.some(r => inside(this.player.centerX, this.player.centerY, r)) ? 'air' : this.room.pressure ? 'pressure' : 'water',
+            environment: this.room.volcanic ? 'heat' : this.room.air.some(r => inside(this.player.centerX, this.player.centerY, r)) ? 'air' : breathable(this.room, this.player.centerX, this.player.centerY, this.waterline) ? 'dry' : this.room.pressure ? 'pressure' : 'water',
             state: this.player.state, prompt: this.prompt, objective: objective(this.progress), paused: this.paused, completed: this.progress.completed,
             boss: boss ? { name: boss.displayName, health: boss.health, maxHealth: boss.maxHealth } : null,
             checkpoint: this.progress.checkpoint, saving: this.refill, gamepad: this.controls.gamepad

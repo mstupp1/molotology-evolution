@@ -23,7 +23,7 @@ export type UiCommand = { type: 'pause'; mode: 'map' | 'pause' } | { type: 'resu
 export interface GameSnapshot {
     health: number; maxHealth: number; oxygen: number; evolution: Evolution; harpoon: boolean; key: boolean; rangedWeapon: RangedWeapon;
     room: RoomId; roomName: string; explored: RoomId[]; opened: string[]; defeated: string[];
-    position: { x: number; y: number }; environment: 'water' | 'air' | 'pressure' | 'heat';
+    position: { x: number; y: number }; environment: 'water' | 'air' | 'dry' | 'pressure' | 'heat';
     state: PlayerState; prompt: string; objective: string; paused: boolean; completed: boolean;
     boss: { name: string; health: number; maxHealth: number } | null;
     checkpoint: RoomId; saving: boolean; gamepad: boolean;

@@ -3,9 +3,9 @@ import { collect, newProgress } from './model';
 import { meetsRequirement, ROOMS, ROOM_IDS, segmentRect, type RoomId } from './world';
 
 describe('shipwreck progression', () => {
-    it('contains fourteen main rooms, two secrets, unique map positions, unique enemy IDs and reciprocal connections', () => {
-        expect(ROOM_IDS).toHaveLength(16);
-        expect(new Set(ROOM_IDS.map(id => ROOMS[id].map.join(','))).size).toBe(16);
+    it('contains fifteen main rooms, two secrets, unique map positions, unique enemy IDs and reciprocal connections', () => {
+        expect(ROOM_IDS).toHaveLength(17);
+        expect(new Set(ROOM_IDS.map(id => ROOMS[id].map.join(','))).size).toBe(17);
         for (const r of Object.values(ROOMS)) {
             for (const d of r.doors) { expect(ROOMS[d.to].doors.some(back => back.to === r.id), `${r.id} -> ${d.to}`).toBe(true); }
             expect(new Set(r.enemies.map(e => e.id)).size).toBe(r.enemies.length);
@@ -21,7 +21,7 @@ describe('shipwreck progression', () => {
             }
         }
         expect(progress.harpoon).toBe(true); expect(progress.evolution).toBe(2); expect(progress.key).toBe(true);
-        expect(visited.size).toBe(16); expect(visited.has('angler')).toBe(true);
+        expect(visited.size).toBe(17); expect(visited.has('angler')).toBe(true);
     });
     it('does not allow shortcuts to bypass the intended ability order', () => {
         const p = newProgress();
@@ -37,9 +37,9 @@ describe('shipwreck progression', () => {
     });
 });
 describe('vital pearls and platform clearance', () => {
-    it('hides four main-route pearls and one heat-gated Cargo pearl', () => {
+    it('hides four main-route pearls, one heat-gated Cargo pearl and one flood-gated Bilge pearl', () => {
         const pearls = ROOM_IDS.flatMap(id => ROOMS[id].pickups.filter(p => p.kind === 'health').map(p => p.id));
-        expect(pearls.sort()).toEqual(['pearl:cargo', 'pearl:cargo-thermal', 'pearl:chapel', 'pearl:quarters', 'pearl:rigging']);
+        expect(pearls.sort()).toEqual(['pearl:bilge', 'pearl:cargo', 'pearl:cargo-thermal', 'pearl:chapel', 'pearl:quarters', 'pearl:rigging']);
     });
     it('leaves room for the 86 px player body between every pair of stacked platforms', () => {
         for (const id of ROOM_IDS) {
