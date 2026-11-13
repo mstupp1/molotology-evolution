@@ -32,3 +32,11 @@ Built-in **image_gen** produced two distinct lost-diver variants and a split, gl
 Rebuild the additions with `python scripts/prepare_update_assets.py` (Pillow). Each diver has twelve frames in the existing 256×256 cell format, with one common scale across all poses. The script preserves existing motion-manifest entries and appends bounds for the new visuals. The relic packs to a transparent 128×128 cell and displays at 65×65. Exact generation prompts are in [UPDATE_PROMPTS.md](UPDATE_PROMPTS.md).
 
 Lantern weak-spot centers in `src/game/combat.ts` follow the luminous cyan bulb across all twelve Angler frames and mirror with facing. Software-WebGL regression checks advance the real Phaser input/scene/Arcade loop at 60Hz between rendered captures, avoiding timing assertions based on software rendering speed.
+
+## Combat and atmosphere polish
+
+The four lost divers now select attacks by visual identity: the Unlisted Diver chomps, the Borrowed Shell snips, the Rigging Castaway alternates cable whips and falling hooks between leaps, and the Cinder Diver spews molten streams from its chimney. Generated transparent jaw/pincer parts articulate around shared attack geometry; their source art, packing script, and exact prompts are documented in [POLISH_PROMPTS.md](POLISH_PROMPTS.md).
+
+The Cinder Diver now pressures the final-molt pickup in the Molting Chamber without locking it. Its old defeat identifier remains valid. Molten streams stop at terrain; the final shell resists their heat. Stage lava uses animated, feathered banks and advected crust rather than rectangular tile sprites. Lantern pulses retain the full-radius warning and original damage timing while adding spirals, motes, and scalloped shockwaves. Hand-contact anchors keep both hanging forms against the ledge; ceiling vents hang upside down. Maps mark unfinished secret encounters without revealing hidden destinations.
+
+Capture current motion with `node scripts/capture-polish.mjs` against the dev server on port 8081; screenshots are saved under `art/qa/polish/`, with raw animation frames in the OS temporary directory. Assemble compact review clips with `python scripts/assemble_polish_qa.py`. See [the validation notes](qa/POLISH.md).

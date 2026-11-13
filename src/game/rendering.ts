@@ -5,6 +5,7 @@ import type { Progress } from './model';
 import type { Player } from './systems/Player';
 import { Atmosphere, softTexture } from './atmosphere';
 import { Flicker, roomDarkness } from './lighting';
+import { LavaField } from './lava';
 import { WATERLINE } from './water';
 const WATER_DRAINED = WATERLINE.drained, WATER_FLOODED = WATERLINE.flooded;
 
@@ -159,6 +160,7 @@ export class RoomView {
     private overlay: Phaser.GameObjects.Image;
     private record: Phaser.GameObjects.Image;
     private tick = 0;
+    private lava: LavaField;
     private warnings: Phaser.GameObjects.Image[] = [];
     private pockets: Rect[] = [];
     private water: Phaser.GameObjects.Graphics;
@@ -258,20 +260,19 @@ export class RoomView {
             this.breakables.push({ data, sprite, label, hits: 2 });
         }
         for (const h of room.heat ?? []) {
-            const lava = scene.add.tileSprite(h.x + h.w / 2, h.y + h.h, h.w, Math.min(65, h.h), 'lava').setOrigin(0.5, 1).setDepth(9).setTileScale(0.5);
-            scene.tweens.add({ targets: lava, tilePositionX: 200, duration: 6000, repeat: -1 });
-            scene.tweens.add({ targets: lava, tilePositionY: 10, alpha: 0.75, duration: 720, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             scene.add.particles(h.x, h.y + h.h - 28, 'bubble', { x: { min: 8, max: h.w - 8 }, lifespan: { min: 500, max: 1100 }, speedY: { min: -105, max: -30 }, speedX: { min: -12, max: 12 }, scale: { start: 0.6, end: 0.1 }, tint: [0xff802f, 0xffd18f], alpha: { start: 0.8, end: 0 }, frequency: 170 }).setDepth(17);
             for (let x = h.x + Math.min(80, h.w / 2); x < h.x + h.w; x += 260) {
                 const floor = h.y + h.h;
-                const vent = scene.add.image(x, floor, 'volcanic-vent').setOrigin(0.5, 1).setDisplaySize(90, Math.min(120, h.h + 25)).setDepth(8);
-                scene.tweens.add({ targets: vent, scaleY: vent.scaleY * 1.08, duration: 420, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+                const vent = scene.add.image(x, floor + 14, 'volcanic-vent').setOrigin(0.5, 1).setDisplaySize(74, Math.min(96, h.h + 10)).setTint(0xa99489).setDepth(8);
+                scene.tweens.add({ targets: vent, alpha: 0.84, duration: 1600 + x % 700, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
+                scene.add.particles(x, floor - 35, 'softlight', { lifespan: 1800, speedY: { min: -65, max: -30 }, speedX: { min: -18, max: 18 }, scale: { start: 0.18, end: 0.65 }, alpha: { start: 0.12, end: 0 }, tint: [0x8b7667, 0x947e73], frequency: 250 }).setDepth(16);
                 const glow = scene.add.image(x, floor - h.h / 2, 'glow').setTint(0xff6b2f).setDisplaySize(300, 240).setAlpha(0.7).setBlendMode(Phaser.BlendModes.ADD).setDepth(10);
                 scene.tweens.add({ targets: glow, alpha: 0.35, duration: 700 + x % 300, yoyo: true, repeat: -1 });
                 scene.add.particles(x, h.y + 12, 'spark', { lifespan: 1600, speedY: { min: -140, max: -45 }, speedX: { min: -25, max: 25 }, scale: { start: 0.5, end: 0 }, alpha: { start: 0.75, end: 0 }, tint: [0xff6a30, 0xffca7e], frequency: 100 }).setDepth(17);
             }
             plaque(scene, h.x + h.w / 2, h.y - 28, 'Extreme Heat · Carapace Only', 'heat', 11);
         }
+        this.lava = new LavaField(scene, room.heat ?? []);
         for (const a of room.anchors) {
             decor.lineStyle(2, 0x778f85, 0.65).lineBetween(a.x, 0, a.x, a.y - 14);
             scene.add.image(a.x, a.y, 'anchor-ring').setDisplaySize(42, 50).setDepth(12);
@@ -295,12 +296,16 @@ export class RoomView {
         for (const d of room.doors) {
             const unlocked = meetsRequirement(d.requires, progress);
             const image = scene.add.image(d.x, d.y + 12, d.hidden ? 'prop-6' : 'prop-5').setOrigin(0.5, 1).setDisplaySize(d.hidden ? 65 : 96, d.hidden ? 44 : 146).setDepth(9).setAlpha(d.hidden ? 0.5 : 0.95);
+            if (d.crawl) {
+                const beam = room.platforms.find(p => d.x >= p.x && d.x <= p.x + p.w && Math.abs(p.y + p.h - (d.y - 44)) < 20);
+                image.setPosition(d.x, beam ? beam.y + beam.h : d.y - 44).setAngle(180);
+            }
             if (!unlocked) image.setTint(0xae8585);
             else if (!d.hidden) {
-                const glow = scene.add.image(d.x, d.y - 60, 'glow').setDisplaySize(170, 210).setTint(d.shortcut ? COLORS.gold : theme.accent).setAlpha(0.18).setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
+                const glow = scene.add.image(d.x, d.crawl ? image.y + 60 : d.y - 60, 'glow').setDisplaySize(170, 210).setTint(d.shortcut ? COLORS.gold : theme.accent).setAlpha(0.18).setBlendMode(Phaser.BlendModes.ADD).setDepth(8);
                 scene.tweens.add({ targets: glow, alpha: 0.32, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.InOut' });
             }
-            const label = d.hidden ? undefined : plaque(scene, d.x, d.crawl ? d.y + 85 : d.y - 160, `${d.shortcut ? '↗ ' : ''}${d.label.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())}${unlocked ? '' : '  ◈'}`, unlocked ? 'bone' : 'sealed', 10);
+            const label = d.hidden ? undefined : plaque(scene, d.x, d.crawl ? image.y + 168 : d.y - 160, `${d.shortcut ? '↗ ' : ''}${d.label.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())}${unlocked ? '' : '  ◈'}`, unlocked ? 'bone' : 'sealed', 10);
             this.doors.push({ data: d, image, label });
         }
         if (room.station) {
@@ -397,6 +402,7 @@ export class RoomView {
             l.halo.setVisible(level > 0.5); l.lamp.setTint(level > 0.5 ? 0xffffff : 0x4a5258);
         }
         this.drawWater(dt, camera);
+        this.lava.update(dt, camera.scrollX, camera.scrollX + GAME_WIDTH);
         this.atmosphere.update(dt, camera, { x: p.centerX - camera.scrollX, y: p.centerY - 28 - camera.scrollY, angle, reach: 540, spread: 0.37, halo: 200, power });
         if (this.tick % 2) return;
         const ctx = this.darkness.context;
@@ -421,8 +427,9 @@ export class RoomView {
         ctx.globalCompositeOperation = 'destination-out';
         // Bioluminescent creatures, lanterns, doors, pickups and stations retain pools of light.
         const points: { x: number; y: number; r?: number }[] = [...this.room.anchors, ...lights, ...this.pickups.filter(q => q.sprite.active).map(q => ({ x: q.data.x, y: q.data.y, r: 90 })), { x: 1600, y: 820, r: 45 }];
+        for (const h of this.room.heat ?? []) for (let x = h.x + 30; x < h.x + h.w; x += 150) points.push({ x, y: h.y + h.h - 25, r: 100 });
         if (this.room.station) points.push({ x: this.room.station.x, y: this.room.station.y - 65, r: 85 });
-        for (const d of this.room.doors) if (!d.hidden) points.push({ x: d.x, y: d.y - 60, r: 70 });
+        for (const d of this.room.doors) if (!d.hidden) points.push({ x: d.x, y: d.crawl ? d.y + 16 : d.y - 60, r: 70 });
         for (const l of this.lanterns) if (l.flicker.level > 0.5) points.push({ x: l.x, y: l.y, r: 95 });
         for (const a of this.pockets) points.push({ x: a.x + a.w / 2, y: 520, r: Math.min(150, a.w / 4) });
         for (const v of this.valves) points.push({ x: v.x, y: v.y - 120, r: 70 });
@@ -478,5 +485,5 @@ export class RoomView {
             v.lamp.setTint(flooded ? 0x7fe8ff : 0xffb060); v.glow.setTint(flooded ? 0x5fc8e0 : 0xf09040);
         }
     }
-    destroy(): void { this.atmosphere.destroy(); this.overlay.destroy(); this.record.destroy(); this.platforms.clear(true, true); this.platforms.destroy(); }
+    destroy(): void { this.lava.destroy(); this.atmosphere.destroy(); this.overlay.destroy(); this.record.destroy(); this.platforms.clear(true, true); this.platforms.destroy(); }
 }

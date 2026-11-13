@@ -1,6 +1,8 @@
 import * as Phaser from 'phaser';
 import { bolt, easeOutBack, project, randomDirection, rotate, sphereDirections, type Projected, type Pt, type Vec3 } from '../fx';
 import type { Enemy } from './Enemies';
+import type { Rect } from '../world';
+import { spewMouth, specialSegments, specialActive, hookLanes, type SpecialAttack } from '../specialAttacks';
 
 /**
  * 2.5D attack effects. Each effect lives in a shallow 3D space around its source:
@@ -39,6 +41,7 @@ export class AttackFx {
     private trails = new Map<Phaser.GameObjects.GameObject, Pt[]>();
     private lightList: FxLight[] = [];
     private time = 0;
+    private limbs = new Map<Enemy, Phaser.GameObjects.Image[]>();
 
     constructor(private scene: Phaser.Scene) {
         const layer = (depth: number, add: boolean) => { const g = scene.add.graphics().setDepth(depth); if (add) g.setBlendMode(Phaser.BlendModes.ADD); return g; };
@@ -50,6 +53,7 @@ export class AttackFx {
     /** Clears last frame's strokes. Call before any enemy draws. */
     begin(dt: number): void {
         this.time += dt; this.lightList = [];
+        this.limbs.forEach(parts => parts.forEach(part => part.setVisible(false)));
         for (const g of [this.back, this.backSolid, this.front, this.frontSolid, this.glow, this.core]) g.clear();
         for (const h of this.halos) h.setVisible(false);
         this.haloIndex = 0;
@@ -61,16 +65,124 @@ export class AttackFx {
     lanternPulse(e: Enemy, radius: number, progress: number, released: boolean): void {
         const spot = e.weakSpot; if (!spot) return;
         const x = spot.x + spot.w / 2, y = spot.y + spot.h / 2;
-        const t = Phaser.Math.Clamp(progress, 0, 1);
+        const t = Phaser.Math.Clamp(progress, 0, 1), fade = released ? 1 - t : 0.35 + 0.65 * t;
+        this.mark(e, released ? 'pulse-release' : 'pulse-charge');
         this.lightList.push({ x, y, r: released ? radius + 80 : 100 + 180 * t });
-        this.back.lineStyle(3, 0xb79afa, released ? 0.8 * (1 - t) : 0.25 + 0.4 * t).strokeCircle(x, y, radius);
-        if (released) {
-            this.front.fillStyle(0xc4cfff, 0.2 * (1 - t)).fillCircle(x, y, radius);
-            this.core.lineStyle(10 * (1 - t) + 1, 0xd5ffff, 1 - t).strokeCircle(x, y, radius * t);
-        } else {
-            this.core.lineStyle(2, 0xc4ffff, 0.6).strokeCircle(x, y, 16 + (1 - t) * 45);
-            this.front.fillStyle(0x9ffaff, 0.3 + 0.5 * t).fillCircle(x, y, 8 + 14 * t);
+        // A stable outer boundary communicates the full instantaneous damage area.
+        this.silhouette(x, y, radius, 0.65 * fade, 0, VIOLET, true);
+        for (let arm = 0; arm < 7; arm++) {
+            const points = Array.from({ length: 25 }, (_, i) => {
+                const u = i / 24, r = released ? radius * (t + (1 - t) * u) : 18 + radius * u * (1 - t * 0.35);
+                const angle = arm * Math.PI * 2 / 7 + this.time * (released ? 1 : -1.7) + u * (released ? 0.7 : 2.8);
+                return { x: x + Math.cos(angle) * r, y: y + Math.sin(angle) * r };
+            });
+            this.front.lineStyle(released ? 4 : 2, VIOLET, 0.25 * fade).strokePoints(points as Phaser.Math.Vector2[]);
+            this.core.lineStyle(1.3, 0xbcefff, 0.5 * fade).strokePoints(points as Phaser.Math.Vector2[]);
+            const mote = points[Math.floor((this.time * 18 + arm * 3) % 25)];
+            this.core.fillStyle(0xf1ecff, fade).fillCircle(mote.x, mote.y, 2 + t * 2);
         }
+        if (released) {
+            for (let wave = 0; wave < 3; wave++) {
+                const k = Phaser.Math.Clamp(t * 1.8 - wave * 0.22, 0, 1);
+                if (k <= 0 || k >= 1) continue;
+                const points = Array.from({ length: 97 }, (_, i) => {
+                    const a = i / 96 * Math.PI * 2, r = radius * Phaser.Math.Easing.Cubic.Out(k) + Math.sin(a * 12 - this.time * 14) * 8 * Math.sin(Math.PI * k);
+                    return { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r };
+                });
+                this.glow.lineStyle(18 * (1 - k), VIOLET, 0.2 * (1 - k)).strokePoints(points as Phaser.Math.Vector2[]);
+                this.core.lineStyle(4 * (1 - k) + 1, 0xe5ffff, 1 - k).strokePoints(points as Phaser.Math.Vector2[]);
+            }
+            this.front.fillStyle(0x9a99ed, 0.1 * fade).fillCircle(x, y, radius);
+        } else {
+            for (let ray = 0; ray < 6; ray++) {
+                const a = this.time * 2 + ray * Math.PI / 3, r = 20 + 30 * t + Math.sin(this.time * 33) * 5;
+                this.core.lineStyle(2, 0xe5ffff, fade).lineBetween(x + Math.cos(a) * 8, y + Math.sin(a) * 8, x + Math.cos(a) * r, y + Math.sin(a) * r);
+            }
+        }
+        this.halo(x, y, released ? 250 * fade : 70 + 100 * t, 0xb8cfff, 0.35 + 0.3 * fade);
+    }
+
+    /** Source-textured jaws/claws stay attached to the body and follow the damaging segments. */
+    private articulated(e: Enemy, attack: 'chomp' | 'snip', progress: number): void {
+        let parts = this.limbs.get(e);
+        if (!parts) {
+            const key = attack === 'chomp' ? 'special-jaw' : 'special-pincer';
+            parts = [0, 1].map(index => this.scene.add.image(0, 0, key).setOrigin(0.94, attack === 'chomp' ? 0.24 : 0.5).setDepth(18.3 + index * 0.1));
+            this.limbs.set(e, parts);
+        }
+        const pose = e.mode === 'windup' ? 0 : e.mode === 'recover' ? 0.15 * (1 - progress) : progress;
+        const segments = specialSegments(attack, e, e.target, e.attackFacing, pose);
+        segments.forEach((segment, index) => {
+            const dx = segment.b.x - segment.a.x, dy = segment.b.y - segment.a.y;
+            const flipY = (index === 1) !== (e.attackFacing > 0);
+            parts![index].setOrigin(0.94, attack === 'chomp' ? (flipY ? 0.76 : 0.24) : 0.5).setVisible(true).setPosition(segment.a.x, segment.a.y)
+                .setDisplaySize(Math.hypot(dx, dy) * (e.mode === 'windup' ? 0.65 + 0.35 * progress : 1), attack === 'chomp' ? 64 : 87)
+                .setRotation(Math.atan2(dy, dx) + Math.PI).setFlipY(flipY).setAlpha(e.alpha);
+        });
+    }
+
+    special(e: Enemy, attack: SpecialAttack, progress: number, geometry: readonly Rect[] = []): void {
+        const p = Phaser.Math.Clamp(progress, 0, 1), charging = e.mode === 'windup', recovering = e.mode === 'recover';
+        const active = e.mode === 'strike' && specialActive(attack, p);
+        const fresh = this.mark(e, `${attack}-${e.mode}`), color = attack === 'spew' ? 0xff893e : attack === 'cable' || attack === 'hooks' ? 0xc4b58c : 0xf2b7a0;
+        if (attack === 'chomp' || attack === 'snip') this.articulated(e, attack, p);
+        if (recovering) return;
+        const segments = specialSegments(attack, e, e.target, e.attackFacing, charging ? 0 : p, geometry);
+        if (charging) {
+            if (attack === 'hooks') {
+                for (const x of hookLanes(e.target.x)) {
+                    this.back.lineStyle(2, color, 0.25 + p * 0.4).lineBetween(x, 20, x, 850);
+                    this.front.lineStyle(2, color, 0.6).strokeEllipse(x, 842, 64, 14);
+                    this.core.fillStyle(color, p).fillTriangle(x - 7, 105, x + 7, 105, x, 120 + p * 12);
+                }
+            } else {
+                for (const { a, b } of segments) this.back.lineStyle(2, color, 0.12 + p * 0.35).lineBetween(a.x, a.y, b.x, b.y);
+            }
+            const source = attack === 'spew' ? spewMouth(e, e.attackFacing) : { x: e.x + e.attackFacing * 45, y: e.y - 30 };
+            this.halo(source.x, source.y, 100 + p * 60, color, 0.12 + p * 0.25);
+            if (attack === 'spew' && Math.random() < p) this.burst(source.x, source.y, color, 1, 50);
+            return;
+        }
+        if (fresh) this.burst(e.x + e.attackFacing * 60, e.y, color, 14, 230);
+        if (attack === 'chomp' || attack === 'snip') {
+            if (active) {
+                for (const { a, b } of segments) {
+                    this.front.lineStyle(14, color, 0.12).lineBetween(a.x, a.y, b.x, b.y);
+                    this.core.lineStyle(2, 0xffeed8, 0.6).lineBetween(a.x, a.y, b.x, b.y);
+                }
+            }
+        } else if (attack === 'spew') {
+            const fade = active ? 1 : Math.sin(Math.PI * p);
+            for (const [index, { a, b, width }] of segments.entries()) {
+                const bead = (0.32 + Math.sin(this.time * 19 - index * 1.7) * 0.12) * width;
+                this.frontSolid.fillStyle(0x712c29, fade).fillCircle(b.x, b.y, bead);
+                this.front.fillStyle(color, 0.65 * fade).fillCircle(b.x, b.y, bead * 0.8);
+                this.frontSolid.lineStyle(width, 0x712c29, 0.8 * fade).lineBetween(a.x, a.y, b.x, b.y);
+                this.front.lineStyle(width * 0.65, color, 0.8 * fade).lineBetween(a.x, a.y, b.x, b.y);
+                this.core.lineStyle(width * (0.12 + Math.sin(this.time * 15 - index * 0.8) * 0.07), 0xffdc8a, 0.5 * fade).lineBetween(a.x, a.y, b.x, b.y);
+            }
+            for (const segment of segments.filter(s => s.end)) {
+                const tip = segment.b;
+                this.halo(tip.x, tip.y, 100, color, 0.22 * fade);
+                if (Math.random() < 0.25) this.spark(tip.x, tip.y, 0, 0, 0, e.attackFacing * 90, -140, 0, 0.45, color, 3, 0.8, -500, false);
+            }
+            this.lightList.push({ x: e.x + e.attackFacing * 240, y: e.y - 15, r: 260 });
+        } else {
+            for (const { a, b } of segments) {
+                this.frontSolid.lineStyle(9, 0x10191a, 1).lineBetween(a.x, a.y, b.x, b.y);
+                this.frontSolid.lineStyle(4, 0x8b7961, 1).lineBetween(a.x, a.y, b.x, b.y);
+                this.front.lineStyle(1.5, 0xe7d6a3, active ? 0.9 : 0.3).lineBetween(a.x, a.y, b.x, b.y);
+                if (attack === 'hooks') {
+                    this.frontSolid.lineStyle(7, 0xaaa089, 1).beginPath().arc(b.x + 9, b.y - 4, 15, -0.4, Math.PI * 1.1).strokePath();
+                    this.frontSolid.fillStyle(0xd4c3a0).fillTriangle(b.x + 22, b.y - 8, b.x + 17, b.y - 22, b.x + 29, b.y - 16);
+                }
+            }
+        }
+    }
+
+    removeEnemy(e: Enemy): void {
+        this.limbs.get(e)?.forEach(part => part.destroy()); this.limbs.delete(e);
+        this.phase.delete(e); this.arcs.delete(e); this.ghostTimer.delete(e);
     }
 
     /** Advances and draws free sparks and flashes. Call after enemies draw. */
@@ -268,6 +380,7 @@ export class AttackFx {
     destroy(): void {
         for (const g of [this.back, this.backSolid, this.front, this.frontSolid, this.glow, this.core]) g.destroy();
         for (const h of this.halos) h.destroy();
+        this.limbs.forEach(parts => parts.forEach(part => part.destroy())); this.limbs.clear();
         this.halos = []; this.sparks = []; this.arcs.clear(); this.trails.clear(); this.phase.clear(); this.ghostTimer.clear();
     }
 

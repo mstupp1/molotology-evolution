@@ -197,7 +197,7 @@ export class Hud extends Phaser.Scene {
             const text = this.surveyEnv.dataset.text = ENVIRONMENT[data.environment](data.evolution);
             this.surveyEnv.replaceChildren(el('span', 'dot')); this.surveyEnv.append(text);
         }
-        const mapKey = `${data.room}|${data.explored.join()}|${data.checkpoint}|${data.harpoon}|${data.evolution}|${data.key}|${Math.round(data.position.x * 20)}|${Math.round(data.position.y * 10)}`;
+        const mapKey = `${data.room}|${data.explored.join()}|${data.defeated.join()}|${data.checkpoint}|${data.harpoon}|${data.evolution}|${data.key}|${Math.round(data.position.x * 20)}|${Math.round(data.position.y * 10)}`;
         if (mapKey !== this.renderKey) { this.renderKey = mapKey; drawMap(this.surveyMap, data, 36, 22, false); }
 
         const inputKey = data.gamepad ? 'pad' : 'keys';
@@ -270,7 +270,7 @@ export class Hud extends Phaser.Scene {
             const map = svg('svg', { width: 900, height: 360, viewBox: '0 0 900 360' }, wrap);
             if (data) drawMap(map, data, 152, 90, true);
             const legend = el('div', 'map-legend', undefined, foot);
-            for (const [kind, label] of [['you', 'You'], ['station', 'Oxygen station · save'], ['sealed', 'Sealed passage'], ['room', 'Unsurveyed']] as const) {
+            for (const [kind, label] of [['you', 'You'], ['station', 'Oxygen station · save'], ['sealed', 'Sealed passage'], ['room', 'Unsurveyed'], ['secret', 'Unfinished secret']] as const) {
                 const item = el('span', '', undefined, legend); item.appendChild(legendIcon(kind)); item.append(label);
             }
             const objective = el('div', 'map-objective', undefined, foot);

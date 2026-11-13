@@ -75,8 +75,8 @@ export const ROOMS: Record<RoomId, Room> = {
     molt: room('molt', 'The Molting Chamber', [4, 1], {
         subtitle: '08 / LEAVE SOMETHING OF YOURSELF', color: 0x3c273e, station: { x: 450, y: 850 },
         doors: [door('molt', 'pressure', 100, 'PRESSURE WORKS'), door('molt', 'ballast', 3040, 'BALLAST DUCT', { requires: 'dash' })],
-        pickups: [{ id: 'infestation', kind: 'infestation', x: 2100, y: 675 }], enemies: [mob('molt', 'octopus', 1200), mob('molt', 'urchin', 2600)],
-        log: 'The suit falls away. Six legs find the iron. Heat no longer hurts; walls are only another floor.'
+        pickups: [{ id: 'infestation', kind: 'infestation', x: 2100, y: 675 }], enemies: [mob('molt', 'octopus', 1200), { ...mob('molt', 'hermit', 2240), id: 'caldera:hermit:2580', visual: 'cinder-diver' }],
+        log: 'A furnace breathes beside the abandoned shell. Bait its molten breath, then take the opening. The suit falls away. Six legs find the iron. Heat no longer hurts; walls are only another floor.'
     }),
     ballast: room('ballast', 'The Ballast Duct', [4, 2], {
         subtitle: '09 / THROUGH THE RIBS', color: 0x253640,
@@ -110,7 +110,7 @@ export const ROOMS: Record<RoomId, Room> = {
         platforms: [platform(0, 850, WIDTH, 174), platform(1150, 500, 100, 350), platform(850, 470, 1450, 30), platform(1950, 500, 100, 350), platform(650, 350, 100, 500), platform(400, 100, 2650, 100), platform(2760, 310, 280)],
         doors: [door('caldera', 'furnace', 100, 'BLACK SMOKER'), door('caldera', 'angler', 2910, 'CEILING VENT · ANGLER HOLD', { y: 244, requires: 'key', crawl: true })],
         heat: [{ x: 1250, y: 730, w: 700, h: 120 }, { x: 2180, y: 755, w: 680, h: 95 }],
-        enemies: [{ ...mob('caldera', 'hermit', 2580), visual: 'cinder-diver' }, mob('caldera', 'jellyfish', 1680, 600)],
+        enemies: [mob('caldera', 'jellyfish', 1680, 600)],
         log: 'Press toward a wall to cling. W / S climb; A / D scuttle beneath iron ceilings. Space or Down drops from a ceiling. Climb the western rib, jump to the high beam and scuttle east beneath it to the ceiling vent. The chapel key opens the way to the last light.'
     }),
     angler: room('angler', 'The Angler Hold', [5, 3], {

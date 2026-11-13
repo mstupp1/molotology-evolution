@@ -7,8 +7,16 @@ export async function advance(page, frames = 1) {
         const g = window.__MOLOTOLOGY__;
         g.loop.sleep();
         window.__testTime ??= g.loop.now;
-        for (let i = 0; i < frames; i++) { window.__testTime += 1000 / 60; g.headlessStep(window.__testTime, 1000 / 60); }
-        g.step(window.__testTime, 0);
+        // Phaser's TweenManager reads Date.now independently of the game clock.
+        // Feed it the same fixed step so a mantle and its controller finish together.
+        const clocks = new Map(); let delta = 1000 / 60;
+        const syncTweens = () => { for (const scene of g.scene.getScenes(true)) {
+            if (!clocks.has(scene.tweens)) { clocks.set(scene.tweens, scene.tweens.getDelta); scene.tweens.getDelta = () => delta; }
+        } };
+        try {
+            for (let i = 0; i < frames; i++) { syncTweens(); window.__testTime += 1000 / 60; g.headlessStep(window.__testTime, 1000 / 60); }
+            delta = 0; syncTweens(); g.step(window.__testTime, 0);
+        } finally { for (const [manager, getDelta] of clocks) manager.getDelta = getDelta; }
     }, frames);
 }
 export async function start(page) {

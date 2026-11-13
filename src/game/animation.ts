@@ -10,3 +10,15 @@ export const PLAYER_FRAMES = {
 } as const;
 export type PlayerAnimation = keyof typeof PLAYER_FRAMES;
 export const playerAnimation = (stage: number, animation: PlayerAnimation): string => `player-${stage}-${animation}`;
+
+/** Gripping contact in 160px cells, measured at the raised hand/claw rather than the helmet. */
+export const LEDGE_HANDS: readonly Record<number, readonly [number, number]>[] = [
+    { 12: [109, 70], 13: [107, 64], 14: [91, 59], 15: [90, 60] },
+    { 12: [113, 67], 13: [110, 62], 14: [96, 59], 15: [94, 60] }
+];
+
+/** Local chimney lips follow the Cinder's swaying furnace shell in each 256px pose. */
+export const CINDER_CHIMNEYS: readonly (readonly [number, number])[] = [
+    [185, 46], [181, 47], [180, 54], [183, 48], [181, 47], [185, 46],
+    [184, 54], [164, 45], [173, 66], [181, 69], [165, 54], [178, 57]
+];

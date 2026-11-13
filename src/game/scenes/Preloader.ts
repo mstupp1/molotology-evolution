@@ -22,7 +22,7 @@ export class Preloader extends Phaser.Scene {
         this.load.spritesheet('diver', 'diver.png', { frameWidth: 160, frameHeight: 160 });
         for (const key of PLAYER_TEXTURES) this.load.spritesheet(key, `${key}.png`, { frameWidth: 160, frameHeight: 160 });
         for (const kind of ENEMY_VISUALS) this.load.spritesheet(`enemy-${kind}`, `enemy-${kind}.png`, { frameWidth: 256, frameHeight: 256 });
-        for (const key of ['harpoon-weapon', 'harpoon-head', 'anchor-ring', 'field-record', 'coral-barrier', 'volcanic-vent', 'lava', 'tentacle', 'claw-sweep', 'abyss-far', 'wreck-ribs']) this.load.image(key, `${key}.png`);
+        for (const key of ['special-jaw', 'special-pincer', 'harpoon-weapon', 'harpoon-head', 'anchor-ring', 'field-record', 'coral-barrier', 'volcanic-vent', 'lava', 'tentacle', 'claw-sweep', 'abyss-far', 'wreck-ribs']) this.load.image(key, `${key}.png`);
         for (let i = 0; i < 8; i++) { this.load.image(`creature-${i}`, `creature-${i}.png`); this.load.image(`prop-${i}`, `prop-${i}.png`); }
         for (const key of ['key', 'harpoon-icon', 'molt-icon']) this.load.image(key, `${key}.png`);
         this.load.audio('menu-music', ['main-menu.ogg', 'main-menu.m4a']);
